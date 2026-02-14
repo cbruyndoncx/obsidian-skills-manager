@@ -2,8 +2,10 @@ import { Notice, Plugin } from 'obsidian';
 import { StateManager } from './state';
 import { SkillsManagerSettingTab } from './settings';
 import { AddSkillModal } from './ui/add-modal';
+import { RegistryModal } from './ui/registry-modal';
 import { checkForUpdate } from './github';
 import { updateGitHubSkill } from './installer';
+import { exportSkills } from './exporter';
 
 export default class SkillsManagerPlugin extends Plugin {
   state!: StateManager;
@@ -51,6 +53,37 @@ export default class SkillsManagerPlugin extends Plugin {
       id: 'skills-manager-update-all',
       name: 'Update all skills',
       callback: () => this.updateAllSkills(),
+    });
+
+    this.addCommand({
+      id: 'skills-manager-browse',
+      name: 'Browse registry',
+      callback: () => {
+        new RegistryModal(this.app, this, () => this.settingsTab.display()).open();
+      },
+    });
+
+    this.addCommand({
+      id: 'skills-manager-export',
+      name: 'Export to tools',
+      callback: async () => {
+        const targets = this.state.settings.crossToolExport || [];
+        if (targets.length === 0) {
+          new Notice('No export targets configured. Set them in Skills Manager settings.');
+          return;
+        }
+        const result = await exportSkills(
+          this.app.vault,
+          this.state.settings.skillsDir,
+          targets
+        );
+        if (result.exported.length > 0) {
+          new Notice(`Exported to: ${result.exported.join(', ')}`);
+        }
+        if (result.errors.length > 0) {
+          new Notice(`Errors: ${result.errors.join('; ')}`);
+        }
+      },
     });
 
     // Startup update check (60s delay)

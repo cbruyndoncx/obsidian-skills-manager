@@ -1,17 +1,22 @@
 import { App, Notice, PluginSettingTab, Setting } from 'obsidian';
 import type SkillsManagerPlugin from './main';
-import { SkillMeta, CATEGORY_ORDER, CATEGORY_DISPLAY } from './types';
+import { SkillMeta, CATEGORY_ORDER, CATEGORY_DISPLAY, SecurityScanResult } from './types';
 import { scanSkills } from './scanner';
 import { toggleSkill } from './toggler';
 import { deleteSkill, updateGitHubSkill } from './installer';
 import { checkForUpdate } from './github';
 import { AddSkillModal } from './ui/add-modal';
+import { exportSkills, EXPORT_TARGET_LABELS } from './exporter';
+import { scanForThreats } from './validator';
 
 export class SkillsManagerSettingTab extends PluginSettingTab {
   plugin: SkillsManagerPlugin;
   private skillContainers: Map<string, HTMLElement> = new Map();
   private searchQuery = '';
   private deleteConfirm: string | null = null;
+  private expandedSkill: string | null = null;
+  private threatCache: Map<string, SecurityScanResult> = new Map();
+  private allSkills: Map<string, SkillMeta> = new Map();
 
   constructor(app: App, plugin: SkillsManagerPlugin) {
     super(app, plugin);
@@ -61,6 +66,53 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
           })
       );
 
+    // --- Cross-tool export section ---
+    containerEl.createEl('h3', {
+      text: 'Cross-tool export',
+      cls: 'skills-manager-heading',
+    });
+
+    const exportTargets = ['cursor', 'copilot', 'windsurf', 'cline'];
+    for (const target of exportTargets) {
+      const label = EXPORT_TARGET_LABELS[target] || target;
+      new Setting(containerEl)
+        .setName(label)
+        .setDesc(`Export enabled skills to ${label} config`)
+        .addToggle((toggle) => {
+          const current = this.plugin.state.settings.crossToolExport || [];
+          toggle.setValue(current.includes(target)).onChange(async (value) => {
+            const updated = value
+              ? [...current.filter((t) => t !== target), target]
+              : current.filter((t) => t !== target);
+            await this.plugin.state.updateSettings({ crossToolExport: updated });
+          });
+        });
+    }
+
+    new Setting(containerEl)
+      .setName('Export now')
+      .setDesc('Write enabled skills to selected tool configs')
+      .addButton((btn) =>
+        btn.setButtonText('Export').onClick(async () => {
+          const targets = this.plugin.state.settings.crossToolExport || [];
+          if (targets.length === 0) {
+            new Notice('No export targets selected');
+            return;
+          }
+          const result = await exportSkills(
+            this.app.vault,
+            this.plugin.state.settings.skillsDir,
+            targets
+          );
+          if (result.exported.length > 0) {
+            new Notice(`Exported to: ${result.exported.join(', ')}`);
+          }
+          if (result.errors.length > 0) {
+            new Notice(`Errors: ${result.errors.join('; ')}`);
+          }
+        })
+      );
+
     // --- Skills list ---
     const skillsHeader = containerEl.createDiv('skills-manager-header-row');
     const skillsHeading = skillsHeader.createEl('h3', { text: 'Skills' });
@@ -89,6 +141,7 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
       this.app.vault,
       this.plugin.state.settings.skillsDir
     );
+    this.allSkills = skills;
 
     if (skills.size === 0) {
       containerEl.createEl('p', {
@@ -105,6 +158,73 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
     containerEl.createEl('p', {
       text: `${skills.size} skills found — ${enabled} enabled, ${skills.size - enabled} disabled`,
       cls: 'skills-manager-stats',
+    });
+
+    // Bulk operations
+    const bulkRow = containerEl.createDiv('skills-manager-bulk-row');
+
+    const enableAllBtn = bulkRow.createEl('button', {
+      text: 'Enable All',
+      cls: 'skills-manager-bulk-btn',
+    });
+    enableAllBtn.addEventListener('click', async () => {
+      for (const [folderName, meta] of this.getVisibleSkills()) {
+        if (meta.disableModelInvocation) {
+          await toggleSkill(
+            this.app.vault,
+            this.plugin.state.settings.skillsDir,
+            folderName,
+            false
+          );
+        }
+      }
+      new Notice('All visible skills enabled');
+      this.display();
+    });
+
+    const disableAllBtn = bulkRow.createEl('button', {
+      text: 'Disable All',
+      cls: 'skills-manager-bulk-btn',
+    });
+    disableAllBtn.addEventListener('click', async () => {
+      for (const [folderName, meta] of this.getVisibleSkills()) {
+        if (!meta.disableModelInvocation) {
+          await toggleSkill(
+            this.app.vault,
+            this.plugin.state.settings.skillsDir,
+            folderName,
+            true
+          );
+        }
+      }
+      new Notice('All visible skills disabled');
+      this.display();
+    });
+
+    const updateAllBtn = bulkRow.createEl('button', {
+      text: 'Update All',
+      cls: 'skills-manager-bulk-btn',
+    });
+    updateAllBtn.addEventListener('click', async () => {
+      const updatable = this.plugin.state.getUpdatableGitHubSkills();
+      if (updatable.length === 0) {
+        new Notice('No updatable GitHub skills');
+        return;
+      }
+      let updated = 0;
+      let failed = 0;
+      for (const [name] of updatable) {
+        const result = await updateGitHubSkill(
+          this.app.vault,
+          this.plugin.state,
+          this.plugin.state.settings.skillsDir,
+          name
+        );
+        if (result.success) updated++;
+        else failed++;
+      }
+      new Notice(`Updated ${updated} skill(s)${failed > 0 ? `, ${failed} failed` : ''}`);
+      this.display();
     });
 
     // Group by category
@@ -171,6 +291,19 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
         })
       );
 
+    // Make skill name clickable for detail view
+    const nameEl = setting.nameEl;
+    nameEl.addClass('skills-manager-clickable-name');
+    nameEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (this.expandedSkill === folderName) {
+        this.expandedSkill = null;
+      } else {
+        this.expandedSkill = folderName;
+      }
+      this.renderDetailPanel(row, folderName);
+    });
+
     // Source badge + version badge
     const descEl = setting.descEl;
     if (descEl) {
@@ -193,6 +326,9 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
         const frozenBadge = descEl.createSpan('skills-manager-badge skills-manager-badge-frozen');
         frozenBadge.setText('frozen');
       }
+
+      // Threat badge (async, non-blocking)
+      this.renderThreatBadge(descEl, folderName);
     }
 
     // GitHub skill actions: freeze toggle, update button
@@ -283,6 +419,126 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
         btn.extraSettingsEl.addClass('skills-manager-delete-confirm');
       }
     });
+
+    // Render detail panel if expanded
+    if (this.expandedSkill === folderName) {
+      this.renderDetailPanel(row, folderName);
+    }
+  }
+
+  private async renderThreatBadge(descEl: HTMLElement, folderName: string): Promise<void> {
+    const skillPath = `${this.plugin.state.settings.skillsDir}/${folderName}`;
+
+    let scanResult = this.threatCache.get(folderName);
+    if (!scanResult) {
+      scanResult = await scanForThreats(this.app.vault, skillPath);
+      this.threatCache.set(folderName, scanResult);
+    }
+
+    if (scanResult.riskLevel === 'danger') {
+      const badge = descEl.createSpan('skills-manager-badge skills-manager-badge-danger');
+      badge.setText('⚠ danger');
+      badge.title = scanResult.threats.map((t) => t.description).join('\n');
+    } else if (scanResult.riskLevel === 'warning') {
+      const badge = descEl.createSpan('skills-manager-badge skills-manager-badge-warning');
+      badge.setText('⚠ warning');
+      badge.title = scanResult.threats.map((t) => t.description).join('\n');
+    }
+  }
+
+  private async renderDetailPanel(row: HTMLElement, folderName: string): Promise<void> {
+    // Remove any existing detail panel in this row
+    const existing = row.querySelector('.skills-manager-detail-panel');
+    if (existing) {
+      existing.remove();
+    }
+
+    // If collapsing, stop here
+    if (this.expandedSkill !== folderName) return;
+
+    const panel = row.createDiv('skills-manager-detail-panel');
+    const adapter = this.app.vault.adapter;
+    const skillPath = `${this.plugin.state.settings.skillsDir}/${folderName}`;
+
+    // Metadata
+    const skillState = this.plugin.state.getSkillState(folderName);
+    if (skillState) {
+      const metaDiv = panel.createDiv('skills-manager-detail-meta');
+      const items: string[] = [];
+      if (skillState.source) items.push(`Source: ${skillState.source}`);
+      if (skillState.repo) items.push(`Repo: ${skillState.repo}`);
+      if (skillState.version) items.push(`Version: ${skillState.version}`);
+      if (skillState.installedAt) items.push(`Installed: ${skillState.installedAt.split('T')[0]}`);
+      if (skillState.lastUpdated) items.push(`Updated: ${skillState.lastUpdated.split('T')[0]}`);
+      metaDiv.createEl('p', { text: items.join(' · '), cls: 'skills-manager-detail-meta-text' });
+    }
+
+    // File listing
+    try {
+      const listing = await adapter.list(skillPath);
+      if (listing.files.length > 0 || listing.folders.length > 0) {
+        const fileDiv = panel.createDiv('skills-manager-detail-files');
+        fileDiv.createEl('strong', { text: 'Files:' });
+        const ul = fileDiv.createEl('ul');
+        for (const file of listing.files) {
+          ul.createEl('li', { text: file.split('/').pop() || file });
+        }
+        for (const folder of listing.folders) {
+          ul.createEl('li', { text: `${folder.split('/').pop()}/` });
+        }
+      }
+    } catch {
+      // Skip if listing fails
+    }
+
+    // SKILL.md body content
+    const skillFile = `${skillPath}/SKILL.md`;
+    try {
+      if (await adapter.exists(skillFile)) {
+        const content = await adapter.read(skillFile);
+        const bodyMatch = content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?([\s\S]*)$/);
+        const body = bodyMatch ? bodyMatch[1].trim() : content.trim();
+        if (body) {
+          const contentDiv = panel.createDiv('skills-manager-detail-content');
+          contentDiv.createEl('strong', { text: 'Instructions:' });
+          const pre = contentDiv.createEl('pre');
+          pre.createEl('code', { text: body });
+        }
+      }
+    } catch {
+      // Skip if read fails
+    }
+
+    // Security scan results
+    const scanResult = this.threatCache.get(folderName);
+    if (scanResult && scanResult.threats.length > 0) {
+      const threatDiv = panel.createDiv('skills-manager-detail-threats');
+      threatDiv.createEl('strong', { text: `Security (${scanResult.riskLevel}):` });
+      const ul = threatDiv.createEl('ul');
+      for (const threat of scanResult.threats) {
+        const li = ul.createEl('li');
+        li.createSpan({
+          text: `[${threat.severity}] `,
+          cls: threat.severity === 'danger' ? 'skills-manager-threat-danger' : 'skills-manager-threat-warning',
+        });
+        li.createSpan({ text: `${threat.file}: ${threat.description}` });
+      }
+    }
+  }
+
+  private getVisibleSkills(): [string, SkillMeta][] {
+    const visible: [string, SkillMeta][] = [];
+    for (const [folderName, meta] of this.allSkills) {
+      const el = this.skillContainers.get(folderName);
+      if (el && el.style.display !== 'none') {
+        visible.push([folderName, meta]);
+      }
+    }
+    // If no filter is active, return all skills
+    if (visible.length === 0 && !this.searchQuery) {
+      return Array.from(this.allSkills.entries());
+    }
+    return visible;
   }
 
   private groupByCategory(

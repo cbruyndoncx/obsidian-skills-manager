@@ -70,6 +70,25 @@ export interface ValidationResult {
   errors: string[];
 }
 
+export interface RegistrySkill {
+  source: string;
+  skillId: string;
+  name: string;
+  installs: number;
+}
+
+export interface SecurityThreat {
+  severity: 'warning' | 'danger';
+  file: string;
+  pattern: string;
+  description: string;
+}
+
+export interface SecurityScanResult {
+  threats: SecurityThreat[];
+  riskLevel: 'clean' | 'warning' | 'danger';
+}
+
 export interface InstallResult {
   success: boolean;
   skillName: string;
