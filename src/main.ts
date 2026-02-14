@@ -1,6 +1,9 @@
-import { Plugin } from 'obsidian';
+import { Notice, Plugin } from 'obsidian';
 import { StateManager } from './state';
 import { SkillsManagerSettingTab } from './settings';
+import { AddSkillModal } from './ui/add-modal';
+import { checkForUpdate } from './github';
+import { updateGitHubSkill } from './installer';
 
 export default class SkillsManagerPlugin extends Plugin {
   state!: StateManager;
@@ -17,7 +20,6 @@ export default class SkillsManagerPlugin extends Plugin {
       id: 'skills-manager-list',
       name: 'List skills',
       callback: () => {
-        // Open settings tab — Obsidian API: open plugin settings
         (this.app as any).setting.open();
         (this.app as any).setting.openTabById(this.manifest.id);
       },
@@ -30,9 +32,92 @@ export default class SkillsManagerPlugin extends Plugin {
         this.settingsTab.display();
       },
     });
+
+    this.addCommand({
+      id: 'skills-manager-add',
+      name: 'Add skill',
+      callback: () => {
+        new AddSkillModal(this.app, this, () => this.settingsTab.display()).open();
+      },
+    });
+
+    this.addCommand({
+      id: 'skills-manager-check-updates',
+      name: 'Check for updates',
+      callback: () => this.checkAllUpdates(true),
+    });
+
+    this.addCommand({
+      id: 'skills-manager-update-all',
+      name: 'Update all skills',
+      callback: () => this.updateAllSkills(),
+    });
+
+    // Startup update check (60s delay)
+    if (this.state.settings.autoUpdate) {
+      this.registerInterval(
+        window.setTimeout(() => this.checkAllUpdates(false), 60000) as unknown as number
+      );
+    }
   }
 
   onunload(): void {
     // Cleanup if needed
+  }
+
+  private async checkAllUpdates(verbose: boolean): Promise<void> {
+    const updatable = this.state.getUpdatableGitHubSkills();
+    if (updatable.length === 0) {
+      if (verbose) new Notice('No GitHub skills to check');
+      return;
+    }
+
+    const pat = this.state.settings.githubPat || undefined;
+    let updatesFound = 0;
+
+    for (const [name, skillState] of updatable) {
+      if (!skillState.repo || !skillState.version) continue;
+      try {
+        const result = await checkForUpdate(skillState.repo, skillState.version, pat);
+        if (result?.hasUpdate) {
+          updatesFound++;
+          new Notice(`Update available for ${name}: ${result.latestVersion}`);
+        }
+      } catch {
+        // Skip failed checks silently
+      }
+    }
+
+    if (verbose && updatesFound === 0) {
+      new Notice('All skills are up to date');
+    }
+  }
+
+  private async updateAllSkills(): Promise<void> {
+    const updatable = this.state.getUpdatableGitHubSkills();
+    if (updatable.length === 0) {
+      new Notice('No updatable GitHub skills');
+      return;
+    }
+
+    let updated = 0;
+    let failed = 0;
+
+    for (const [name] of updatable) {
+      const result = await updateGitHubSkill(
+        this.app.vault,
+        this.state,
+        this.state.settings.skillsDir,
+        name
+      );
+      if (result.success) {
+        updated++;
+      } else {
+        failed++;
+      }
+    }
+
+    new Notice(`Updated ${updated} skill(s)${failed > 0 ? `, ${failed} failed` : ''}`);
+    this.settingsTab.display();
   }
 }

@@ -51,4 +51,27 @@ export class StateManager {
     delete this.data.skills[name];
     await this.save();
   }
+
+  /** Get all skills with a specific source type. */
+  getSkillsBySource(source: 'local' | 'zip' | 'github'): [string, SkillState][] {
+    return Object.entries(this.data.skills).filter(
+      ([, state]) => state.source === source
+    );
+  }
+
+  /** Get all GitHub skills that are not frozen. */
+  getUpdatableGitHubSkills(): [string, SkillState][] {
+    return Object.entries(this.data.skills).filter(
+      ([, state]) => state.source === 'github' && !state.frozen
+    );
+  }
+
+  /** Toggle the frozen state of a skill. */
+  async toggleFrozen(name: string): Promise<void> {
+    const skill = this.data.skills[name];
+    if (skill) {
+      skill.frozen = !skill.frozen;
+      await this.save();
+    }
+  }
 }

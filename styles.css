@@ -11,6 +11,34 @@
   padding-bottom: 0.3em;
 }
 
+/* Header row with heading + add button */
+.skills-manager-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.skills-manager-header-row .skills-manager-heading {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.skills-manager-add-btn {
+  padding: 4px 12px;
+  border-radius: 4px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.skills-manager-add-btn:hover {
+  opacity: 0.9;
+}
+
+/* Search */
 .skills-manager-search {
   margin-bottom: 1em;
 }
@@ -89,4 +117,90 @@
   background: var(--interactive-accent);
   color: var(--text-on-accent);
   opacity: 0.8;
+}
+
+.skills-manager-badge-source {
+  background: var(--background-modifier-border);
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.skills-manager-badge-frozen {
+  background: var(--text-error);
+  color: var(--text-on-accent);
+  opacity: 0.8;
+}
+
+/* Delete confirmation */
+.skills-manager-delete-confirm {
+  color: var(--text-error) !important;
+}
+
+/* Add Skill Modal */
+.skills-manager-add-modal {
+  max-width: 500px;
+}
+
+.skills-manager-add-modal .modal-content {
+  padding: 0;
+}
+
+.skills-manager-tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 16px;
+}
+
+.skills-manager-tab {
+  padding: 8px 16px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-muted);
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.skills-manager-tab:hover {
+  color: var(--text-normal);
+}
+
+.skills-manager-tab.is-active {
+  color: var(--interactive-accent);
+  border-bottom-color: var(--interactive-accent);
+}
+
+.skills-manager-modal-body {
+  padding: 0 4px;
+}
+
+.skills-manager-modal-body .setting-item {
+  border-top: none;
+}
+
+.skills-manager-modal-status {
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 4px 0;
+  margin: 0;
+}
+
+.skills-manager-modal-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px 0;
+}
+
+.skills-manager-modal-buttons button {
+  padding: 6px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.skills-manager-modal-buttons button.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

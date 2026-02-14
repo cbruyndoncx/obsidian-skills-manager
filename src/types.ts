@@ -51,6 +51,36 @@ export const CATEGORY_ORDER: string[] = [
   'utilities',
 ];
 
+export interface GitHubRelease {
+  tag_name: string;
+  prerelease: boolean;
+  published_at: string;
+  assets: GitHubAsset[];
+  zipball_url: string;
+}
+
+export interface GitHubAsset {
+  name: string;
+  url: string;
+  browser_download_url: string;
+}
+
+export interface ValidationResult {
+  valid: boolean;
+  errors: string[];
+}
+
+export interface InstallResult {
+  success: boolean;
+  skillName: string;
+  errors: string[];
+}
+
+export interface UpdateCheckResult {
+  hasUpdate: boolean;
+  latestVersion: string;
+}
+
 export const CATEGORY_DISPLAY: Record<string, string> = {
   marketing: 'Marketing',
   seo: 'SEO',
