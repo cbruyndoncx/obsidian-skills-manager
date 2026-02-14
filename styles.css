@@ -1,0 +1,92 @@
+/* Skills Manager Plugin Styles */
+
+.skills-manager-settings {
+  max-width: 900px;
+}
+
+.skills-manager-heading {
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: 0.3em;
+}
+
+.skills-manager-search {
+  margin-bottom: 1em;
+}
+
+.skills-manager-search-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 14px;
+}
+
+.skills-manager-search-input:focus {
+  border-color: var(--interactive-accent);
+  outline: none;
+}
+
+.skills-manager-stats {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin-bottom: 1em;
+}
+
+.skills-manager-empty {
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 2em 0;
+}
+
+/* Category sections */
+.skills-manager-category {
+  margin-bottom: 1.5em;
+}
+
+.skills-manager-category-header {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5em;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+/* Skill rows */
+.skills-manager-skill-row {
+  border-radius: 6px;
+  padding: 2px 0;
+}
+
+.skills-manager-skill-row .setting-item {
+  border-top: none;
+  padding: 8px 4px;
+}
+
+.skills-manager-skill-row:hover {
+  background: var(--background-secondary);
+}
+
+/* Badges */
+.skills-manager-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.skills-manager-badge-version {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  opacity: 0.8;
+}

@@ -1,0 +1,20 @@
+{
+  "name": "obsidian-skills-manager",
+  "version": "1.0.0",
+  "description": "Visual GUI for managing AI agent skills in Obsidian",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "node esbuild.config.mjs production"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "builtin-modules": "^4.0.0",
+    "esbuild": "^0.25.0",
+    "obsidian": "latest",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "semver": "^7.7.0"
+  }
+}
