@@ -1,7 +1,7 @@
 {
   "id": "obsidian-skills-manager",
   "name": "Skills Manager",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "minAppVersion": "0.15.0",
   "description": "Visual GUI for managing AI agent skills (Claude Code, Cursor, Copilot). Browse, install, and toggle SKILL.md-based instructions.",
   "author": "brncx",

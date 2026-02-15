@@ -1,6 +1,6 @@
 {
   "name": "obsidian-skills-manager",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Visual GUI for managing AI agent skills in Obsidian",
   "main": "main.js",
   "scripts": {
