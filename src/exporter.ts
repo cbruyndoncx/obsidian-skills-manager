@@ -74,10 +74,13 @@ export async function exportSkills(
     }
 
     try {
-      // Ensure parent directory exists
-      const dir = path.substring(0, path.lastIndexOf('/'));
-      if (dir && !(await adapter.exists(dir))) {
-        await adapter.mkdir(dir);
+      // Ensure parent directories exist (handles nested paths like .cursor/rules/)
+      const parts = path.split('/');
+      for (let i = 1; i < parts.length; i++) {
+        const dir = parts.slice(0, i).join('/');
+        if (dir && !(await adapter.exists(dir))) {
+          await adapter.mkdir(dir);
+        }
       }
 
       await adapter.write(path, combined);

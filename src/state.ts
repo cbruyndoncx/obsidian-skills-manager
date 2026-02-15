@@ -1,10 +1,12 @@
 import { Plugin } from 'obsidian';
 import { PluginData, PluginSettings, SkillState, DEFAULT_SETTINGS } from './types';
 
-const DEFAULT_DATA: PluginData = {
-  settings: { ...DEFAULT_SETTINGS },
-  skills: {},
-};
+function freshDefaults(): PluginData {
+  return {
+    settings: { ...DEFAULT_SETTINGS, crossToolExport: [] },
+    skills: {},
+  };
+}
 
 export class StateManager {
   private plugin: Plugin;
@@ -12,15 +14,19 @@ export class StateManager {
 
   constructor(plugin: Plugin) {
     this.plugin = plugin;
-    this.data = { ...DEFAULT_DATA };
+    this.data = freshDefaults();
   }
 
   async load(): Promise<void> {
     const saved = await this.plugin.loadData();
     if (saved) {
       this.data = {
-        settings: { ...DEFAULT_SETTINGS, ...saved.settings },
-        skills: saved.skills || {},
+        settings: {
+          ...DEFAULT_SETTINGS,
+          crossToolExport: [],
+          ...saved.settings,
+        },
+        skills: saved.skills ? { ...saved.skills } : {},
       };
     }
   }

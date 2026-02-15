@@ -4,8 +4,9 @@ import { SkillsManagerSettingTab } from './settings';
 import { AddSkillModal } from './ui/add-modal';
 import { RegistryModal } from './ui/registry-modal';
 import { checkForUpdate } from './github';
-import { updateGitHubSkill } from './installer';
+import { installFromGitHub, updateGitHubSkill } from './installer';
 import { exportSkills } from './exporter';
+import { parseRepo } from './github';
 
 export default class SkillsManagerPlugin extends Plugin {
   state!: StateManager;
@@ -17,6 +18,33 @@ export default class SkillsManagerPlugin extends Plugin {
 
     this.settingsTab = new SkillsManagerSettingTab(this.app, this);
     this.addSettingTab(this.settingsTab);
+
+    // Protocol handler: obsidian://skills-manager?action=install&repo=owner/repo
+    this.registerObsidianProtocolHandler('skills-manager', async (params) => {
+      if (params.action === 'install' && params.repo) {
+        const repo = parseRepo(params.repo);
+        if (!repo) {
+          new Notice(`Invalid repository format: ${params.repo}`);
+          return;
+        }
+        new Notice(`Installing skill from ${repo}...`);
+        const pat = this.state.settings.githubPat || undefined;
+        const result = await installFromGitHub(
+          this.app.vault,
+          this.state,
+          this.state.settings.skillsDir,
+          repo,
+          undefined,
+          pat
+        );
+        if (result.success) {
+          new Notice(`Installed: ${result.skillName}`);
+          this.settingsTab.display();
+        } else {
+          new Notice(`Install failed: ${result.errors.join('; ')}`);
+        }
+      }
+    });
 
     this.addCommand({
       id: 'skills-manager-list',

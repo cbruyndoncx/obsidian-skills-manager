@@ -134,6 +134,14 @@ export class RegistryModal extends Modal {
       });
     }
 
+    // Skill count
+    if (!this.loading && this.skills.length > 0) {
+      contentEl.createEl('p', {
+        text: `Showing ${this.skills.length} skills`,
+        cls: 'skills-manager-registry-count',
+      });
+    }
+
     // Load more
     if (this.hasMore && !this.loading) {
       const loadMoreBtn = contentEl.createEl('button', {

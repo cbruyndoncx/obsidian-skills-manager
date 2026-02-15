@@ -201,10 +201,6 @@ export class AddSkillModal extends Modal {
       text: 'Install',
       cls: 'mod-cta',
     });
-    installBtn.disabled = this.releases.length === 0;
-    if (this.releases.length === 0) {
-      installBtn.addClass('is-disabled');
-    }
 
     installBtn.addEventListener('click', async () => {
       const repo = parseRepo(this.githubRepo);

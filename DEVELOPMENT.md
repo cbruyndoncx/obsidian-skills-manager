@@ -77,14 +77,14 @@ obsidian-skills-manager/
 │   ├── settings.ts            # PluginSettingTab — main settings UI
 │   ├── types.ts               # Interfaces and type definitions
 │   ├── scanner.ts             # Scan skills directory, parse SKILL.md frontmatter
+│   ├── toggler.ts             # Toggle disable-model-invocation in SKILL.md frontmatter
 │   ├── github.ts              # GitHub API — fetch releases, download, update checks
-│   ├── installer.ts           # ZIP upload + GitHub install + extract + validate
+│   ├── installer.ts           # Local/GitHub install + validate + update/delete
 │   ├── state.ts               # skills-config.json read/write/merge
 │   ├── validator.ts           # Skill structure validation + security checks
 │   ├── exporter.ts            # Cross-tool export (dotagent-style)
 │   └── ui/
-│       ├── skill-card.ts      # Individual skill row in settings (toggle + metadata)
-│       ├── add-modal.ts       # Modal: add skill from GitHub URL or ZIP
+│       ├── add-modal.ts       # Modal: add skill from GitHub URL or local folder
 │       └── registry-modal.ts  # Modal: browse skills.sh registry
 ```
 
@@ -124,7 +124,7 @@ interface PluginSettings {
 |---|---|
 | `Plugin` | Lifecycle — `onload()`, `onunload()`, `addCommand()`, `addSettingTab()` |
 | `PluginSettingTab` + `Setting` | Settings panel — toggles, text inputs, buttons, dropdowns |
-| `Modal` | Dialogs — add skill from GitHub/ZIP, registry browser |
+| `Modal` | Dialogs — add skill from GitHub/local folder, registry browser |
 | `Notice` | Toast notifications — install success, update available |
 | `requestUrl` | HTTP — GitHub API calls (no external deps needed) |
 | `this.app.vault.adapter` | File system — read, write, mkdir, list, stat |

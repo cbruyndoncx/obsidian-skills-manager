@@ -9,6 +9,14 @@ import { AddSkillModal } from './ui/add-modal';
 import { exportSkills, EXPORT_TARGET_LABELS } from './exporter';
 import { scanForThreats } from './validator';
 
+function debounce<T extends (...args: unknown[]) => void>(fn: T, ms: number): T {
+  let timer: ReturnType<typeof setTimeout>;
+  return ((...args: unknown[]) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  }) as unknown as T;
+}
+
 export class SkillsManagerSettingTab extends PluginSettingTab {
   plugin: SkillsManagerPlugin;
   private skillContainers: Map<string, HTMLElement> = new Map();
@@ -28,8 +36,12 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
     containerEl.empty();
     containerEl.addClass('skills-manager-settings');
 
+    // Invalidate caches on rescan/redisplay
+    this.threatCache.clear();
+    this.skillContainers.clear();
+
     // --- Plugin settings section ---
-    new Setting(containerEl)
+    const skillsDirSetting = new Setting(containerEl)
       .setName('Skills directory')
       .setDesc('Path relative to vault root where skills are stored')
       .addText((text) =>
@@ -38,6 +50,22 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
           .setValue(this.plugin.state.settings.skillsDir)
           .onChange(async (value) => {
             await this.plugin.state.updateSettings({ skillsDir: value });
+            // Validate directory exists
+            const exists = await this.app.vault.adapter.exists(value);
+            const warningEl = skillsDirSetting.descEl.querySelector('.skills-manager-dir-warning');
+            if (!exists && value) {
+              if (!warningEl) {
+                const warn = skillsDirSetting.descEl.createEl('div', {
+                  text: `Directory "${value}" does not exist`,
+                  cls: 'skills-manager-dir-warning mod-warning',
+                });
+                warn.style.color = 'var(--text-error)';
+                warn.style.fontSize = '0.8em';
+                warn.style.marginTop = '4px';
+              }
+            } else if (warningEl) {
+              warningEl.remove();
+            }
           })
       );
 
@@ -81,9 +109,11 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
         .addToggle((toggle) => {
           const current = this.plugin.state.settings.crossToolExport || [];
           toggle.setValue(current.includes(target)).onChange(async (value) => {
+            // Read fresh state to avoid stale closure overwriting other toggles
+            const fresh = this.plugin.state.settings.crossToolExport || [];
             const updated = value
-              ? [...current.filter((t) => t !== target), target]
-              : current.filter((t) => t !== target);
+              ? [...fresh.filter((t) => t !== target), target]
+              : fresh.filter((t) => t !== target);
             await this.plugin.state.updateSettings({ crossToolExport: updated });
           });
         });
@@ -131,10 +161,11 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
       placeholder: 'Filter skills...',
     });
     searchInput.addClass('skills-manager-search-input');
-    searchInput.addEventListener('input', () => {
+    const debouncedFilter = debounce(() => {
       this.searchQuery = searchInput.value.toLowerCase();
       this.filterSkills();
-    });
+    }, 200);
+    searchInput.addEventListener('input', debouncedFilter);
 
     // Scan and render
     const skills = await scanSkills(
@@ -287,6 +318,16 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
           );
           if (!success) {
             toggle.setValue(!value);
+            return;
+          }
+          // Auto-export if cross-tool targets are configured
+          const targets = this.plugin.state.settings.crossToolExport || [];
+          if (targets.length > 0) {
+            try {
+              await exportSkills(this.app.vault, this.plugin.state.settings.skillsDir, targets);
+            } catch {
+              // Silent — auto-export is best-effort
+            }
           }
         })
       );

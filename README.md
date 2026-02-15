@@ -9,7 +9,7 @@
 AI coding agents use **skills** (packaged instructions in `SKILL.md` format) to learn specialized capabilities. But managing 50+ skills means:
 - Manually editing frontmatter to enable/disable
 - No overview of what's installed or active
-- No easy way to install skills from GitHub or ZIP files
+- No easy way to install skills from GitHub or register local skill folders
 - No update mechanism — you manually re-download
 - No visibility across tools (Claude vs. Cursor vs. Copilot)
 
@@ -21,54 +21,62 @@ An Obsidian plugin that brings the **community plugins UX** to agent skills:
 ┌─────────────────────────────────────────────────────────┐
 │  Skills Manager                              [+ Add]    │
 ├─────────────────────────────────────────────────────────┤
+│  [Filter skills...                              ]       │
+│  [Enable All] [Disable All] [Update All]                │
 │                                                         │
-│  ┌─ Installed Skills ─────────────────────────────────┐ │
-│  │                                                     │ │
-│  │  ☑ business-x-ray              v1.2.0  [GitHub]   │ │
-│  │    Map and diagnose business operations             │ │
-│  │                                                     │ │
-│  │  ☑ seo-audit                   v2.0.1  [GitHub]   │ │
-│  │    Comprehensive SEO audit with technical checks    │ │
-│  │                                                     │ │
-│  │  ☐ code-audit-web-full         v1.0.0  [Local]    │ │
-│  │    Static code audit for web application quality    │ │
-│  │                                                     │ │
-│  │  ☑ copywriting                 v1.1.0  [ZIP]      │ │
-│  │    Write marketing copy for any page type           │ │
-│  │                                                     │ │
-│  └─────────────────────────────────────────────────────┘ │
+│  ┌─ Marketing (3) ──────────────────────────────────┐   │
+│  │  ☑ seo-audit              v2.0.1  [GitHub]  ⚠   │   │
+│  │    Comprehensive SEO audit    [🔒] [↻] [🗑]      │   │
+│  │  ☑ copywriting             v1.1.0  [Local]       │   │
+│  │    Write marketing copy       [🗑]                │   │
+│  └──────────────────────────────────────────────────┘   │
 │                                                         │
-│  ┌─ Settings ─────────────────────────────────────────┐ │
-│  │  Skills directory    .claude/skills/               │ │
-│  │  GitHub PAT          ••••••••••••                  │ │
-│  │  Auto-update         ☑ Check on startup            │ │
-│  │  Cross-tool export   ☐ Cursor  ☐ Copilot          │ │
-│  └─────────────────────────────────────────────────────┘ │
+│  ┌─ Business (2) ───────────────────────────────────┐   │
+│  │  ☑ business-x-ray         v1.2.0  [GitHub]      │   │
+│  │    ▼ Detail: Source: github · Repo: brncx/...    │   │
+│  │      Files: SKILL.md, scripts/analyze.py         │   │
+│  │      Security (safe): No threats detected        │   │
+│  │  ☐ code-audit-web-full    v1.0.0  [Local]       │   │
+│  └──────────────────────────────────────────────────┘   │
+│                                                         │
+│  ┌─ Settings ───────────────────────────────────────┐   │
+│  │  Skills directory    .claude/skills/             │   │
+│  │  GitHub PAT          ••••••••••••                │   │
+│  │  Auto-update         ☑ Check on startup          │   │
+│  │  Cross-tool export   ☑ Cursor  ☐ Copilot        │   │
+│  └──────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────┘
 ```
 
 ## Features
 
-### Core (Phase 1)
 - **Scan & list** all skills from `.claude/skills/` with name + description from YAML frontmatter
 - **Toggle enable/disable** — flips `disable-model-invocation` in SKILL.md frontmatter (skills stay in place, like Obsidian's community-plugins.json pattern)
-- **ZIP upload** — upload a skill ZIP, validate structure, extract to skills directory
-- **Command palette** — "List skills", "Enable/disable skill", "Add skill from ZIP"
-- **Configurable skills path** — default `.claude/skills/`, customizable per vault
-
-### GitHub Integration (Phase 2)
 - **Install from GitHub** — provide `owner/repo`, downloads skill to `.claude/skills/`
+- **Register local skills** — point to an existing skill folder in your vault
 - **Auto-update** — checks for new versions on Obsidian startup
 - **Version freezing** — pin a skill to a specific release tag
 - **Private repos** — GitHub Personal Access Token support
-- **Update notifications** — badge or notice when updates are available
+- **Registry browsing** — browse skills.sh catalog from within Obsidian
+- **Cross-tool export** — export enabled skills to Cursor, Copilot, Windsurf, Cline via dotagent patterns
+- **Security scanning** — detect suspicious patterns (shell commands, network calls) in skill scripts
+- **Bulk operations** — enable/disable all, update all (respects active search filter)
+- **Search & filter** — find skills by name, description, or category
+- **Skill detail view** — expand to see full SKILL.md content, file tree, metadata, and security scan results
+- **Protocol handler** — install skills via `obsidian://skills-manager?action=install&repo=owner/repo`
+- **Configurable skills path** — default `.claude/skills/`, customizable per vault
 
-### Full Vision (Phase 3)
-- **Registry browsing** — browse skills.sh or custom registries from within Obsidian
-- **Cross-tool export** — export enabled skills to Cursor, Copilot, Windsurf via dotagent patterns
-- **Security scanning** — validate skill structure before enabling
-- **Bulk operations** — enable/disable all, update all
-- **Search & filter** — find skills by name, tag, or description
+## Commands
+
+| Command | Description |
+|---|---|
+| **List skills** | Open settings panel with skill overview |
+| **Rescan skills** | Refresh the skills list from disk |
+| **Add skill** | Open modal to install from GitHub or register local folder |
+| **Check for updates** | Check all GitHub skills for new versions |
+| **Update all skills** | Update all non-frozen GitHub skills to latest |
+| **Browse registry** | Browse and install from skills.sh catalog |
+| **Export to tools** | Write enabled skills to configured tool configs |
 
 ## Installation
 
@@ -91,23 +99,27 @@ An Obsidian plugin that brings the **community plugins UX** to agent skills:
 
 ### Adding Skills
 
-**From ZIP:**
-1. Command palette → "Skills Manager: Add skill from ZIP"
-2. Select ZIP file
-3. Plugin validates structure (checks for `SKILL.md` with required frontmatter)
-4. Extracts to `.claude/skills/`
-
-**From GitHub (Phase 2):**
-1. Command palette → "Skills Manager: Add skill from GitHub"
+**From GitHub:**
+1. Command palette → "Skills Manager: Add skill"
 2. Enter `owner/repo` (e.g., `kepano/obsidian-skills`)
 3. Plugin downloads and installs
+
+**From Local Folder:**
+1. Command palette → "Skills Manager: Add skill"
+2. Enter the path to an existing skill folder (e.g., `.claude/skills/my-skill`)
+3. Plugin validates structure (checks for `SKILL.md` with required frontmatter)
+
+**Via Protocol Handler:**
+Open `obsidian://skills-manager?action=install&repo=owner/repo` to install directly.
 
 ### Managing Skills
 
 - Open Settings → Skills Manager to see all installed skills
 - Toggle the checkbox to enable/disable (sets `disable-model-invocation` in SKILL.md frontmatter)
 - Skills are grouped by category (marketing, obsidian, docs, etc.)
-- Click a skill name to view full description and metadata
+- Click a skill name to view full description, file tree, and security scan results
+- Use search bar to filter by name, description, or category
+- Use bulk buttons to enable/disable/update all visible skills
 
 ### Configuration
 
@@ -116,7 +128,7 @@ An Obsidian plugin that brings the **community plugins UX** to agent skills:
 | Skills directory | `.claude/skills/` | Where skills are stored |
 | GitHub PAT | — | Personal access token for private repos |
 | Auto-update | On startup | When to check for skill updates |
-| Cross-tool export | Off | Export skill state to Cursor/Copilot configs |
+| Cross-tool export | Off | Export skill state to Cursor/Copilot/Windsurf/Cline configs |
 
 ## Compatibility
 

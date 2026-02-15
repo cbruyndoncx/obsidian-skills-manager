@@ -9,7 +9,7 @@
     "allowJs": true,
     "noImplicitAny": true,
     "moduleResolution": "node",
-    "importHelpers": true,
+    "importHelpers": false,
     "isolatedModules": true,
     "strictNullChecks": true,
     "lib": ["ES2022", "DOM"]

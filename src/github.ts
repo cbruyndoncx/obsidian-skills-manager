@@ -154,8 +154,50 @@ export async function fetchSkillMd(
 }
 
 /**
+ * Fetch all files from a repo's default branch via the Git Trees API.
+ * Returns a map of relative file paths to content.
+ */
+async function fetchRepoTree(
+  repo: string,
+  ref: string,
+  pat?: string
+): Promise<Map<string, string>> {
+  const files = new Map<string, string>();
+  const encodedRef = encodeURIComponent(ref);
+  const url = `${GITHUB_API}/repos/${repo}/git/trees/${encodedRef}?recursive=1`;
+  const response = await requestUrl({
+    url,
+    headers: authHeaders(pat),
+    throw: false,
+  });
+
+  if (response.status !== 200) return files;
+
+  const tree = (response.json as { tree: { path: string; type: string }[] }).tree;
+  const blobs = tree.filter((entry) => entry.type === 'blob');
+
+  for (const blob of blobs) {
+    try {
+      const encodedPath = blob.path.split('/').map((part) => encodeURIComponent(part)).join('/');
+      const rawUrl = `https://raw.githubusercontent.com/${repo}/${encodedRef}/${encodedPath}`;
+      const headers: Record<string, string> = {};
+      if (pat) headers['Authorization'] = `Token ${pat}`;
+      const fileResp = await requestUrl({ url: rawUrl, headers, throw: false });
+      if (fileResp.status === 200) {
+        files.set(blob.path, fileResp.text);
+      }
+    } catch {
+      // Skip files that can't be fetched
+    }
+  }
+
+  return files;
+}
+
+/**
  * Fetch all skill files from a release or repo.
  * Returns a map of relative paths to content.
+ * Tries release assets first, then falls back to full repo tree.
  */
 export async function fetchSkillFiles(
   repo: string,
@@ -184,6 +226,17 @@ export async function fetchSkillFiles(
           // Skip failed asset downloads
         }
       }
+    }
+  }
+
+  // Always try to merge in the repo tree so nested skill assets (scripts/,
+  // references/, templates, etc.) are included even when releases are sparse.
+  // For tagged installs, read from the selected tag; otherwise use HEAD.
+  const ref = release?.tag_name || 'HEAD';
+  const treeFiles = await fetchRepoTree(repo, ref, pat);
+  for (const [path, content] of treeFiles) {
+    if (!files.has(path)) {
+      files.set(path, content);
     }
   }
 

@@ -5,6 +5,56 @@ import { fetchReleases, fetchSkillFiles, fetchLatestRelease } from './github';
 import { StateManager } from './state';
 
 /**
+ * Create a directory and all missing parent directories.
+ */
+async function mkdirRecursive(adapter: Vault['adapter'], dirPath: string): Promise<void> {
+  if (await adapter.exists(dirPath)) return;
+  const parent = dirPath.substring(0, dirPath.lastIndexOf('/'));
+  if (parent) {
+    await mkdirRecursive(adapter, parent);
+  }
+  if (!(await adapter.exists(dirPath))) {
+    await adapter.mkdir(dirPath);
+  }
+}
+
+/**
+ * Replace a target directory with a staged directory, with rollback support.
+ */
+async function replaceDirWithStaging(
+  adapter: Vault['adapter'],
+  stagingDir: string,
+  targetDir: string
+): Promise<void> {
+  const backupDir = `${targetDir}.backup-${Date.now()}`;
+  let backedUp = false;
+
+  try {
+    if (await adapter.exists(targetDir)) {
+      await adapter.rename(targetDir, backupDir);
+      backedUp = true;
+    }
+
+    await adapter.rename(stagingDir, targetDir);
+
+    if (backedUp && (await adapter.exists(backupDir))) {
+      await removeDirRecursive(adapter, backupDir);
+    }
+  } catch (e) {
+    if (backedUp) {
+      try {
+        if (!(await adapter.exists(targetDir)) && (await adapter.exists(backupDir))) {
+          await adapter.rename(backupDir, targetDir);
+        }
+      } catch {
+        // Best-effort rollback
+      }
+    }
+    throw e;
+  }
+}
+
+/**
  * Register a local skill folder that already exists in the vault.
  */
 export async function installLocalSkill(
@@ -56,6 +106,8 @@ export async function installFromGitHub(
   pat?: string
 ): Promise<InstallResult> {
   const errors: string[] = [];
+  const adapter = vault.adapter;
+  let stagingFolder = '';
 
   try {
     // Determine which release to use
@@ -87,30 +139,40 @@ export async function installFromGitHub(
     // Derive folder name from repo
     const repoName = repo.split('/').pop() || repo;
     const skillFolder = `${skillsDir}/${repoName}`;
+    stagingFolder = `${skillsDir}/.${repoName}.staging-${Date.now()}`;
 
-    // Create directory
-    const adapter = vault.adapter;
-    if (!(await adapter.exists(skillsDir))) {
-      await adapter.mkdir(skillsDir);
-    }
-    if (!(await adapter.exists(skillFolder))) {
-      await adapter.mkdir(skillFolder);
-    }
+    // Create staging directory (handle nested paths)
+    await mkdirRecursive(adapter, stagingFolder);
 
-    // Write files
+    // Write files to staging directory
     for (const [fileName, content] of files) {
-      await adapter.write(`${skillFolder}/${fileName}`, content);
+      const targetPath = `${stagingFolder}/${fileName}`;
+      const parent = targetPath.substring(0, targetPath.lastIndexOf('/'));
+      if (parent) {
+        await mkdirRecursive(adapter, parent);
+      }
+      await adapter.write(targetPath, content);
     }
 
-    // Validate
-    const validation = await validateSkillDir(vault, skillFolder);
+    // Validate staged skill
+    const validation = await validateSkillDir(vault, stagingFolder);
     if (!validation.valid) {
+      try {
+        if (await adapter.exists(stagingFolder)) {
+          await removeDirRecursive(adapter, stagingFolder);
+        }
+      } catch {
+        // Best-effort cleanup
+      }
       return {
         success: false,
         skillName: repoName,
         errors: validation.errors,
       };
     }
+
+    // Promote staged directory to live directory, with rollback
+    await replaceDirWithStaging(adapter, stagingFolder, skillFolder);
 
     // Register in state
     const tag = release?.tag_name;
@@ -130,6 +192,16 @@ export async function installFromGitHub(
       errors: [],
     };
   } catch (e) {
+    // Clean up staging folder on any failure in fetch/write/replace.
+    if (stagingFolder) {
+      try {
+        if (await adapter.exists(stagingFolder)) {
+          await removeDirRecursive(adapter, stagingFolder);
+        }
+      } catch {
+        // Best-effort cleanup
+      }
+    }
     errors.push(e instanceof Error ? e.message : String(e));
     return { success: false, skillName: '', errors };
   }
@@ -172,14 +244,32 @@ export async function updateGitHubSkill(
   );
 
   if (result.success) {
-    await state.setSkillState(folderName, {
-      ...skillState,
-      version: targetVersion || result.skillName,
-      lastUpdated: new Date().toISOString(),
-    });
+    // installFromGitHub already persisted state with the correct version tag;
+    // read it back and just stamp lastUpdated
+    const freshState = state.getSkillState(folderName);
+    if (freshState) {
+      await state.setSkillState(folderName, {
+        ...freshState,
+        lastUpdated: new Date().toISOString(),
+      });
+    }
   }
 
   return result;
+}
+
+/**
+ * Recursively remove a directory and all its contents.
+ */
+async function removeDirRecursive(adapter: Vault['adapter'], dirPath: string): Promise<void> {
+  const listing = await adapter.list(dirPath);
+  for (const file of listing.files) {
+    await adapter.remove(file);
+  }
+  for (const subfolder of listing.folders) {
+    await removeDirRecursive(adapter, subfolder);
+  }
+  await adapter.rmdir(dirPath, false);
 }
 
 /**
@@ -192,24 +282,10 @@ export async function deleteSkill(
   folderName: string
 ): Promise<boolean> {
   const skillFolder = `${skillsDir}/${folderName}`;
-  const adapter = vault.adapter;
 
   try {
-    if (await adapter.exists(skillFolder)) {
-      // List and delete all files in the folder
-      const listing = await adapter.list(skillFolder);
-      for (const file of listing.files) {
-        await adapter.remove(file);
-      }
-      // Remove subfolders recursively (simple single level)
-      for (const subfolder of listing.folders) {
-        const subListing = await adapter.list(subfolder);
-        for (const file of subListing.files) {
-          await adapter.remove(file);
-        }
-        await adapter.rmdir(subfolder, false);
-      }
-      await adapter.rmdir(skillFolder, false);
+    if (await vault.adapter.exists(skillFolder)) {
+      await removeDirRecursive(vault.adapter, skillFolder);
     }
 
     await state.removeSkillState(folderName);
