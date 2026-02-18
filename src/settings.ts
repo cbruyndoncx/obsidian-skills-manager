@@ -94,54 +94,65 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
           })
       );
 
-    // --- Cross-tool export section ---
-    containerEl.createEl('h3', {
-      text: 'Cross-tool export',
-      cls: 'skills-manager-heading',
+    // --- Cross-tool export section (collapsible) ---
+    const isExportEnabled = this.plugin.state.settings.crossToolExportEnabled;
+    const exportHeading = containerEl.createEl('h3', {
+      cls: 'skills-manager-heading skills-manager-collapsible-heading',
+    });
+    const chevron = exportHeading.createSpan('skills-manager-chevron');
+    chevron.setText(isExportEnabled ? '▾' : '▸');
+    exportHeading.appendText(' Cross-tool export');
+
+    exportHeading.addEventListener('click', async () => {
+      await this.plugin.state.updateSettings({
+        crossToolExportEnabled: !isExportEnabled,
+      });
+      this.display();
     });
 
-    const exportTargets = ['cursor', 'copilot', 'windsurf', 'cline'];
-    for (const target of exportTargets) {
-      const label = EXPORT_TARGET_LABELS[target] || target;
-      new Setting(containerEl)
-        .setName(label)
-        .setDesc(`Export enabled skills to ${label} config`)
-        .addToggle((toggle) => {
-          const current = this.plugin.state.settings.crossToolExport || [];
-          toggle.setValue(current.includes(target)).onChange(async (value) => {
-            // Read fresh state to avoid stale closure overwriting other toggles
-            const fresh = this.plugin.state.settings.crossToolExport || [];
-            const updated = value
-              ? [...fresh.filter((t) => t !== target), target]
-              : fresh.filter((t) => t !== target);
-            await this.plugin.state.updateSettings({ crossToolExport: updated });
+    if (isExportEnabled) {
+      const exportTargets = ['cursor', 'copilot', 'windsurf', 'cline'];
+      for (const target of exportTargets) {
+        const label = EXPORT_TARGET_LABELS[target] || target;
+        new Setting(containerEl)
+          .setName(label)
+          .setDesc(`Export enabled skills to ${label} config`)
+          .addToggle((toggle) => {
+            const current = this.plugin.state.settings.crossToolExport || [];
+            toggle.setValue(current.includes(target)).onChange(async (value) => {
+              const fresh = this.plugin.state.settings.crossToolExport || [];
+              const updated = value
+                ? [...fresh.filter((t) => t !== target), target]
+                : fresh.filter((t) => t !== target);
+              await this.plugin.state.updateSettings({ crossToolExport: updated });
+            });
           });
-        });
-    }
+      }
 
-    new Setting(containerEl)
-      .setName('Export now')
-      .setDesc('Write enabled skills to selected tool configs')
-      .addButton((btn) =>
-        btn.setButtonText('Export').onClick(async () => {
-          const targets = this.plugin.state.settings.crossToolExport || [];
-          if (targets.length === 0) {
-            new Notice('No export targets selected');
-            return;
-          }
-          const result = await exportSkills(
-            this.app.vault,
-            this.plugin.state.settings.skillsDir,
-            targets
-          );
-          if (result.exported.length > 0) {
-            new Notice(`Exported to: ${result.exported.join(', ')}`);
-          }
-          if (result.errors.length > 0) {
-            new Notice(`Errors: ${result.errors.join('; ')}`);
-          }
-        })
-      );
+      new Setting(containerEl)
+        .setName('Export now')
+        .setDesc('Write enabled skills to selected tool configs')
+        .addButton((btn) =>
+          btn.setButtonText('Export').onClick(async () => {
+            const targets = this.plugin.state.settings.crossToolExport || [];
+            if (targets.length === 0) {
+              new Notice('No export targets selected');
+              return;
+            }
+            const result = await exportSkills(
+              this.app.vault,
+              this.plugin.state.settings.skillsDir,
+              targets
+            );
+            if (result.exported.length > 0) {
+              new Notice(`Exported to: ${result.exported.join(', ')}`);
+            }
+            if (result.errors.length > 0) {
+              new Notice(`Errors: ${result.errors.join('; ')}`);
+            }
+          })
+        );
+    }
 
     // --- Skills list ---
     const skillsHeader = containerEl.createDiv('skills-manager-header-row');
@@ -320,9 +331,9 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
             toggle.setValue(!value);
             return;
           }
-          // Auto-export if cross-tool targets are configured
+          // Auto-export if cross-tool export is enabled and targets are configured
           const targets = this.plugin.state.settings.crossToolExport || [];
-          if (targets.length > 0) {
+          if (this.plugin.state.settings.crossToolExportEnabled && targets.length > 0) {
             try {
               await exportSkills(this.app.vault, this.plugin.state.settings.skillsDir, targets);
             } catch {

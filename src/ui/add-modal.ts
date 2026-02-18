@@ -1,11 +1,11 @@
 import { App, Modal, Notice, Setting } from 'obsidian';
 import type SkillsManagerPlugin from '../main';
 import { validateSkillDir } from '../validator';
-import { parseRepo, fetchReleases } from '../github';
-import { installLocalSkill, installFromGitHub } from '../installer';
+import { parseRepo, parseSkillRef, fetchReleases, fetchSkillsShInfo, SkillRef } from '../github';
+import { installLocalSkill, installFromGitHub, installFromMonorepo } from '../installer';
 import { GitHubRelease } from '../types';
 
-type Tab = 'local' | 'github';
+type Tab = 'local' | 'remote';
 
 export class AddSkillModal extends Modal {
   private plugin: SkillsManagerPlugin;
@@ -16,11 +16,12 @@ export class AddSkillModal extends Modal {
   private localPath = '';
   private localStatus = '';
 
-  // GitHub tab state
-  private githubRepo = '';
-  private githubVersion = '';
+  // Remote tab state
+  private remoteInput = '';
+  private remoteVersion = '';
   private releases: GitHubRelease[] = [];
-  private githubStatus = '';
+  private remoteStatus = '';
+  private parsedRef: SkillRef | null = null;
 
   constructor(app: App, plugin: SkillsManagerPlugin, onDone: () => void) {
     super(app);
@@ -53,11 +54,11 @@ export class AddSkillModal extends Modal {
       this.render();
     });
 
-    const githubTab = tabBar.createEl('button', { text: 'GitHub' });
-    githubTab.addClass('skills-manager-tab');
-    if (this.activeTab === 'github') githubTab.addClass('is-active');
-    githubTab.addEventListener('click', () => {
-      this.activeTab = 'github';
+    const remoteTab = tabBar.createEl('button', { text: 'Install' });
+    remoteTab.addClass('skills-manager-tab');
+    if (this.activeTab === 'remote') remoteTab.addClass('is-active');
+    remoteTab.addEventListener('click', () => {
+      this.activeTab = 'remote';
       this.render();
     });
 
@@ -67,7 +68,7 @@ export class AddSkillModal extends Modal {
     if (this.activeTab === 'local') {
       this.renderLocalTab(body);
     } else {
-      this.renderGitHubTab(body);
+      this.renderRemoteTab(body);
     }
   }
 
@@ -132,46 +133,51 @@ export class AddSkillModal extends Modal {
     });
   }
 
-  private renderGitHubTab(container: HTMLElement): void {
+  private renderRemoteTab(container: HTMLElement): void {
     new Setting(container)
-      .setName('GitHub repository')
-      .setDesc('owner/repo or full GitHub URL')
+      .setName('Skill source')
+      .setDesc('GitHub repo, URL, monorepo path, or skills.sh URL')
       .addText((text) =>
         text
-          .setPlaceholder('owner/repo')
-          .setValue(this.githubRepo)
+          .setPlaceholder('owner/repo, owner/repo/path, or URL')
+          .setValue(this.remoteInput)
           .onChange((value) => {
-            this.githubRepo = value;
+            this.remoteInput = value;
+            this.parsedRef = parseSkillRef(value);
+            // Re-render to update hint
+            this.updateHint(container);
           })
       );
 
-    // Fetch versions button
-    const fetchRow = container.createDiv('skills-manager-modal-buttons');
-    const fetchBtn = fetchRow.createEl('button', { text: 'Fetch Versions' });
-    fetchBtn.addEventListener('click', async () => {
-      const repo = parseRepo(this.githubRepo);
-      if (!repo) {
-        this.githubStatus = 'Invalid repository format. Use owner/repo';
-        this.render();
-        return;
-      }
-      try {
-        this.githubStatus = 'Fetching releases...';
-        this.render();
-        const pat = this.plugin.state.settings.githubPat || undefined;
-        this.releases = await fetchReleases(repo, pat);
-        if (this.releases.length === 0) {
-          this.githubStatus = 'No releases found';
-        } else {
-          this.githubStatus = `Found ${this.releases.length} release(s)`;
-          this.githubVersion = this.releases[0].tag_name;
+    // Format detection hint
+    const hintEl = container.createEl('p', { cls: 'skills-manager-input-hint' });
+    this.setHintText(hintEl);
+
+    // Fetch versions button (only for standard repo refs)
+    if (this.parsedRef?.type === 'github' && this.parsedRef.repo) {
+      const fetchRow = container.createDiv('skills-manager-modal-buttons');
+      const fetchBtn = fetchRow.createEl('button', { text: 'Fetch Versions' });
+      fetchBtn.addEventListener('click', async () => {
+        const repo = this.parsedRef?.repo;
+        if (!repo) return;
+        try {
+          this.remoteStatus = 'Fetching releases...';
+          this.render();
+          const pat = this.plugin.state.settings.githubPat || undefined;
+          this.releases = await fetchReleases(repo, pat);
+          if (this.releases.length === 0) {
+            this.remoteStatus = 'No releases found';
+          } else {
+            this.remoteStatus = `Found ${this.releases.length} release(s)`;
+            this.remoteVersion = this.releases[0].tag_name;
+          }
+        } catch (e) {
+          this.remoteStatus = e instanceof Error ? e.message : String(e);
+          this.releases = [];
         }
-      } catch (e) {
-        this.githubStatus = e instanceof Error ? e.message : String(e);
-        this.releases = [];
-      }
-      this.render();
-    });
+        this.render();
+      });
+    }
 
     // Version dropdown (only if releases loaded)
     if (this.releases.length > 0) {
@@ -182,17 +188,17 @@ export class AddSkillModal extends Modal {
           for (const release of this.releases) {
             dropdown.addOption(release.tag_name, release.tag_name);
           }
-          dropdown.setValue(this.githubVersion);
+          dropdown.setValue(this.remoteVersion);
           dropdown.onChange((value) => {
-            this.githubVersion = value;
+            this.remoteVersion = value;
           });
         });
     }
 
     // Status
-    if (this.githubStatus) {
+    if (this.remoteStatus) {
       const status = container.createEl('p', { cls: 'skills-manager-modal-status' });
-      status.setText(this.githubStatus);
+      status.setText(this.remoteStatus);
     }
 
     // Install button
@@ -203,34 +209,116 @@ export class AddSkillModal extends Modal {
     });
 
     installBtn.addEventListener('click', async () => {
-      const repo = parseRepo(this.githubRepo);
-      if (!repo) {
-        this.githubStatus = 'Invalid repository format';
+      const ref = parseSkillRef(this.remoteInput);
+      if (!ref) {
+        this.remoteStatus = 'Unrecognized format. Use owner/repo, a GitHub URL, or a skills.sh URL.';
         this.render();
         return;
       }
 
-      this.githubStatus = 'Installing...';
+      this.remoteStatus = 'Installing...';
       this.render();
 
       const pat = this.plugin.state.settings.githubPat || undefined;
-      const result = await installFromGitHub(
-        this.app.vault,
-        this.plugin.state,
-        this.plugin.state.settings.skillsDir,
-        repo,
-        this.githubVersion || undefined,
-        pat
-      );
 
-      if (result.success) {
-        new Notice(`Installed skill: ${result.skillName}`);
-        this.onDone();
-        this.close();
-      } else {
-        this.githubStatus = result.errors.join('; ');
+      try {
+        let result;
+
+        if (ref.type === 'skills-sh') {
+          // Resolve skills.sh to GitHub source
+          const info = await fetchSkillsShInfo(ref.skillsShId!);
+          if (!info) {
+            this.remoteStatus = 'Could not resolve skills.sh skill to a GitHub source';
+            this.render();
+            return;
+          }
+          if (info.subpath) {
+            result = await installFromMonorepo(
+              this.app.vault,
+              this.plugin.state,
+              this.plugin.state.settings.skillsDir,
+              info.repo,
+              info.subpath,
+              pat
+            );
+          } else {
+            result = await installFromGitHub(
+              this.app.vault,
+              this.plugin.state,
+              this.plugin.state.settings.skillsDir,
+              info.repo,
+              undefined,
+              pat
+            );
+          }
+        } else if (ref.type === 'github-monorepo') {
+          result = await installFromMonorepo(
+            this.app.vault,
+            this.plugin.state,
+            this.plugin.state.settings.skillsDir,
+            ref.repo!,
+            ref.subpath!,
+            pat
+          );
+        } else {
+          // Standard GitHub repo
+          result = await installFromGitHub(
+            this.app.vault,
+            this.plugin.state,
+            this.plugin.state.settings.skillsDir,
+            ref.repo!,
+            this.remoteVersion || undefined,
+            pat
+          );
+        }
+
+        if (result.success) {
+          new Notice(`Installed skill: ${result.skillName}`);
+          this.onDone();
+          this.close();
+        } else {
+          this.remoteStatus = result.errors.join('; ');
+          this.render();
+        }
+      } catch (e) {
+        this.remoteStatus = e instanceof Error ? e.message : String(e);
         this.render();
       }
     });
+  }
+
+  private setHintText(el: HTMLElement): void {
+    if (!this.remoteInput.trim()) {
+      el.setText('');
+      el.removeClass('skills-manager-hint-error');
+      return;
+    }
+
+    const ref = this.parsedRef;
+    if (!ref) {
+      el.setText('Unrecognized format');
+      el.addClass('skills-manager-hint-error');
+      return;
+    }
+
+    el.removeClass('skills-manager-hint-error');
+    switch (ref.type) {
+      case 'github':
+        el.setText(`GitHub repo: ${ref.repo}`);
+        break;
+      case 'github-monorepo':
+        el.setText(`Monorepo: ${ref.repo} → ${ref.subpath}`);
+        break;
+      case 'skills-sh':
+        el.setText(`skills.sh: ${ref.skillsShId}`);
+        break;
+    }
+  }
+
+  private updateHint(container: HTMLElement): void {
+    const hintEl = container.querySelector('.skills-manager-input-hint');
+    if (hintEl instanceof HTMLElement) {
+      this.setHintText(hintEl);
+    }
   }
 }

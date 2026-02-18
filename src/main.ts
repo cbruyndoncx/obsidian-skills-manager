@@ -1,4 +1,4 @@
-import { Notice, Plugin } from 'obsidian';
+import { Notice, Plugin, WorkspaceLeaf } from 'obsidian';
 import { StateManager } from './state';
 import { SkillsManagerSettingTab } from './settings';
 import { AddSkillModal } from './ui/add-modal';
@@ -7,6 +7,7 @@ import { checkForUpdate } from './github';
 import { installFromGitHub, updateGitHubSkill } from './installer';
 import { exportSkills } from './exporter';
 import { parseRepo } from './github';
+import { SkillsView, VIEW_TYPE_SKILLS } from './ui/skills-view';
 
 export default class SkillsManagerPlugin extends Plugin {
   state!: StateManager;
@@ -18,6 +19,14 @@ export default class SkillsManagerPlugin extends Plugin {
 
     this.settingsTab = new SkillsManagerSettingTab(this.app, this);
     this.addSettingTab(this.settingsTab);
+
+    // Register skills view
+    this.registerView(VIEW_TYPE_SKILLS, (leaf) => new SkillsView(leaf, this));
+
+    // Ribbon icon to open skills view
+    this.addRibbonIcon('wand-2', 'Open skills manager', () => {
+      this.activateView();
+    });
 
     // Protocol handler: obsidian://skills-manager?action=install&repo=owner/repo
     this.registerObsidianProtocolHandler('skills-manager', async (params) => {
@@ -92,9 +101,19 @@ export default class SkillsManagerPlugin extends Plugin {
     });
 
     this.addCommand({
+      id: 'skills-manager-open-view',
+      name: 'Open skills view',
+      callback: () => this.activateView(),
+    });
+
+    this.addCommand({
       id: 'skills-manager-export',
       name: 'Export to tools',
       callback: async () => {
+        if (!this.state.settings.crossToolExportEnabled) {
+          new Notice('Cross-tool export is disabled. Enable it in Skills Manager settings.');
+          return;
+        }
         const targets = this.state.settings.crossToolExport || [];
         if (targets.length === 0) {
           new Notice('No export targets configured. Set them in Skills Manager settings.');
@@ -123,7 +142,20 @@ export default class SkillsManagerPlugin extends Plugin {
   }
 
   onunload(): void {
-    // Cleanup if needed
+    this.app.workspace.detachLeavesOfType(VIEW_TYPE_SKILLS);
+  }
+
+  async activateView(): Promise<void> {
+    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_SKILLS);
+    if (existing.length > 0) {
+      this.app.workspace.revealLeaf(existing[0]);
+      return;
+    }
+    const leaf = this.app.workspace.getRightLeaf(false);
+    if (leaf) {
+      await leaf.setViewState({ type: VIEW_TYPE_SKILLS, active: true });
+      this.app.workspace.revealLeaf(leaf);
+    }
   }
 
   private async checkAllUpdates(verbose: boolean): Promise<void> {

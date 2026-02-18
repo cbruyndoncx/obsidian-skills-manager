@@ -244,6 +244,167 @@ export async function fetchSkillFiles(
 }
 
 /**
+ * Parsed skill reference from user input.
+ */
+export interface SkillRef {
+  type: 'github' | 'github-monorepo' | 'skills-sh';
+  repo?: string;
+  subpath?: string;
+  skillsShId?: string;
+}
+
+/**
+ * Parse a variety of skill input formats into a structured reference.
+ * Supports:
+ *   - owner/repo (standard GitHub)
+ *   - owner/repo/path/to/skill (monorepo shorthand, 3+ segments)
+ *   - https://github.com/owner/repo (standard GitHub URL)
+ *   - https://github.com/owner/repo/tree/branch/path/to/skill (monorepo URL)
+ *   - https://skills.sh/... (skills.sh URL)
+ */
+export function parseSkillRef(input: string): SkillRef | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  // skills.sh URL
+  if (/^https?:\/\/(www\.)?skills\.sh\//i.test(trimmed)) {
+    const match = trimmed.match(/skills\.sh\/(.+)/i);
+    if (match) {
+      return { type: 'skills-sh', skillsShId: match[1].replace(/\/+$/, '') };
+    }
+    return null;
+  }
+
+  // GitHub URL with tree path (monorepo)
+  const treeMatch = trimmed.match(
+    /github\.com\/([^/]+\/[^/]+)\/tree\/[^/]+\/(.+)/
+  );
+  if (treeMatch) {
+    return {
+      type: 'github-monorepo',
+      repo: treeMatch[1],
+      subpath: treeMatch[2].replace(/\/+$/, ''),
+    };
+  }
+
+  // GitHub URL (standard repo)
+  const urlMatch = trimmed.match(/github\.com\/([^/]+\/[^/]+)\/?$/);
+  if (urlMatch) {
+    return { type: 'github', repo: urlMatch[1].replace(/\.git$/, '') };
+  }
+
+  // Shorthand: owner/repo/path/to/skill (3+ segments = monorepo)
+  const segments = trimmed.split('/');
+  if (segments.length > 2 && !trimmed.includes('://')) {
+    return {
+      type: 'github-monorepo',
+      repo: `${segments[0]}/${segments[1]}`,
+      subpath: segments.slice(2).join('/'),
+    };
+  }
+
+  // Shorthand: owner/repo
+  if (/^[^/]+\/[^/]+$/.test(trimmed)) {
+    return { type: 'github', repo: trimmed };
+  }
+
+  return null;
+}
+
+/**
+ * Fetch files from a specific subdirectory of a GitHub repo.
+ * Used for installing skills from monorepos.
+ */
+export async function fetchSubpathFiles(
+  repo: string,
+  subpath: string,
+  ref: string,
+  pat?: string
+): Promise<Map<string, string>> {
+  const files = new Map<string, string>();
+  const encodedRef = encodeURIComponent(ref);
+  const url = `${GITHUB_API}/repos/${repo}/git/trees/${encodedRef}?recursive=1`;
+  const response = await requestUrl({
+    url,
+    headers: authHeaders(pat),
+    throw: false,
+  });
+
+  if (response.status !== 200) {
+    throw new Error(`Failed to fetch repo tree: HTTP ${response.status}`);
+  }
+
+  const tree = (response.json as { tree: { path: string; type: string }[] }).tree;
+  const prefix = subpath.endsWith('/') ? subpath : `${subpath}/`;
+  const blobs = tree.filter(
+    (entry) => entry.type === 'blob' && (entry.path.startsWith(prefix) || entry.path === subpath)
+  );
+
+  if (blobs.length === 0) {
+    throw new Error(`No files found under "${subpath}" in ${repo}`);
+  }
+
+  for (const blob of blobs) {
+    try {
+      const encodedPath = blob.path.split('/').map((part) => encodeURIComponent(part)).join('/');
+      const rawUrl = `https://raw.githubusercontent.com/${repo}/${encodedRef}/${encodedPath}`;
+      const headers: Record<string, string> = {};
+      if (pat) headers['Authorization'] = `Token ${pat}`;
+      const fileResp = await requestUrl({ url: rawUrl, headers, throw: false });
+      if (fileResp.status === 200) {
+        // Store path relative to the subpath
+        const relativePath = blob.path.startsWith(prefix)
+          ? blob.path.slice(prefix.length)
+          : blob.path.split('/').pop() || blob.path;
+        files.set(relativePath, fileResp.text);
+      }
+    } catch {
+      // Skip files that can't be fetched
+    }
+  }
+
+  return files;
+}
+
+/**
+ * Resolve a skills.sh skill ID to its GitHub source repo.
+ */
+export async function fetchSkillsShInfo(
+  skillId: string
+): Promise<{ repo: string; subpath?: string } | null> {
+  try {
+    const url = `https://skills.sh/api/skills/${encodeURIComponent(skillId)}`;
+    const response = await requestUrl({ url, throw: false });
+    if (response.status !== 200) return null;
+    const data = response.json as { source?: string; repo?: string; subpath?: string };
+    const repo = data.repo || data.source;
+    if (!repo) return null;
+    return { repo, subpath: data.subpath };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get the default branch for a GitHub repo.
+ */
+export async function fetchDefaultBranch(
+  repo: string,
+  pat?: string
+): Promise<string> {
+  const url = `${GITHUB_API}/repos/${repo}`;
+  const response = await requestUrl({
+    url,
+    headers: authHeaders(pat),
+    throw: false,
+  });
+  if (response.status === 200) {
+    return (response.json as { default_branch: string }).default_branch || 'main';
+  }
+  return 'main';
+}
+
+/**
  * Check if a newer version is available for a skill.
  */
 export async function checkForUpdate(

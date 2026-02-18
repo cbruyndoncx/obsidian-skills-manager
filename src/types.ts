@@ -25,6 +25,7 @@ export interface PluginSettings {
   githubPat: string;
   autoUpdate: boolean;
   crossToolExport: string[];
+  crossToolExportEnabled: boolean;
 }
 
 export interface PluginData {
@@ -37,6 +38,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   githubPat: '',
   autoUpdate: true,
   crossToolExport: [],
+  crossToolExportEnabled: false,
 };
 
 export const CATEGORY_ORDER: string[] = [

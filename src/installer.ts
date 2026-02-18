@@ -1,7 +1,7 @@
 import { Vault } from 'obsidian';
 import { InstallResult, SkillState } from './types';
 import { validateSkillDir } from './validator';
-import { fetchReleases, fetchSkillFiles, fetchLatestRelease } from './github';
+import { fetchReleases, fetchSkillFiles, fetchLatestRelease, fetchSubpathFiles, fetchDefaultBranch } from './github';
 import { StateManager } from './state';
 
 /**
@@ -204,6 +204,95 @@ export async function installFromGitHub(
     }
     errors.push(e instanceof Error ? e.message : String(e));
     return { success: false, skillName: '', errors };
+  }
+}
+
+/**
+ * Install a skill from a subdirectory of a GitHub monorepo.
+ */
+export async function installFromMonorepo(
+  vault: Vault,
+  state: StateManager,
+  skillsDir: string,
+  repo: string,
+  subpath: string,
+  pat?: string
+): Promise<InstallResult> {
+  const adapter = vault.adapter;
+  const folderName = subpath.split('/').pop() || subpath.replace(/\//g, '-');
+  const skillFolder = `${skillsDir}/${folderName}`;
+  const stagingFolder = `${skillsDir}/.${folderName}.staging-${Date.now()}`;
+
+  try {
+    const ref = await fetchDefaultBranch(repo, pat);
+    const files = await fetchSubpathFiles(repo, subpath, ref, pat);
+
+    if (!files.has('SKILL.md')) {
+      return {
+        success: false,
+        skillName: folderName,
+        errors: [`No SKILL.md found under "${subpath}" in ${repo}`],
+      };
+    }
+
+    await mkdirRecursive(adapter, stagingFolder);
+
+    for (const [fileName, content] of files) {
+      const targetPath = `${stagingFolder}/${fileName}`;
+      const parent = targetPath.substring(0, targetPath.lastIndexOf('/'));
+      if (parent) {
+        await mkdirRecursive(adapter, parent);
+      }
+      await adapter.write(targetPath, content);
+    }
+
+    const validation = await validateSkillDir(vault, stagingFolder);
+    if (!validation.valid) {
+      try {
+        if (await adapter.exists(stagingFolder)) {
+          await removeDirRecursive(adapter, stagingFolder);
+        }
+      } catch {
+        // Best-effort cleanup
+      }
+      return {
+        success: false,
+        skillName: folderName,
+        errors: validation.errors,
+      };
+    }
+
+    await replaceDirWithStaging(adapter, stagingFolder, skillFolder);
+
+    const skillState: SkillState = {
+      source: 'github',
+      repo: `${repo}/${subpath}`,
+      frozen: false,
+      installedAt: new Date().toISOString(),
+    };
+
+    await state.setSkillState(folderName, skillState);
+
+    return {
+      success: true,
+      skillName: folderName,
+      errors: [],
+    };
+  } catch (e) {
+    if (stagingFolder) {
+      try {
+        if (await adapter.exists(stagingFolder)) {
+          await removeDirRecursive(adapter, stagingFolder);
+        }
+      } catch {
+        // Best-effort cleanup
+      }
+    }
+    return {
+      success: false,
+      skillName: folderName,
+      errors: [e instanceof Error ? e.message : String(e)],
+    };
   }
 }
 
