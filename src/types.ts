@@ -10,6 +10,8 @@ export interface SkillMeta {
   originUrl?: string;
   origin?: string;
   license?: string;
+  compatibility?: string;
+  allowedTools?: string;
 }
 
 export interface SkillState {

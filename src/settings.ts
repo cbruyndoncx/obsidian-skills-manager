@@ -5,7 +5,7 @@ import {
   SecurityScanResult,
 } from './types';
 import { scanSkills } from './scanner';
-import { toggleSkill, setSkillCategory } from './toggler';
+import { toggleSkill, setSkillCategory, setSkillField } from './toggler';
 import { deleteSkill, updateGitHubSkill, installFromGitHub, installFromMonorepo } from './installer';
 import { checkForUpdate } from './github';
 import { AddSkillModal } from './ui/add-modal';
@@ -1325,6 +1325,46 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
           }
         });
       });
+
+    // Auto-loading toggle (disable-model-invocation)
+    new Setting(panel)
+      .setName('Auto-loading')
+      .setDesc('Allow the model to load this skill automatically')
+      .addToggle((toggle) =>
+        toggle.setValue(!currentMeta?.disableModelInvocation).onChange(async (value) => {
+          const success = await toggleSkill(
+            this.app.vault,
+            this.plugin.state.settings.skillsDir,
+            folderName,
+            !value
+          );
+          if (success) {
+            this.allSkills = new Map();
+            this.plugin.regenerateIndex();
+            this.display();
+          }
+        })
+      );
+
+    // User-invocable toggle (command)
+    new Setting(panel)
+      .setName('User-invocable command')
+      .setDesc('Allow the user to invoke this skill as a slash command')
+      .addToggle((toggle) =>
+        toggle.setValue(currentMeta?.userInvocable ?? true).onChange(async (value) => {
+          const success = await setSkillField(
+            this.app.vault,
+            this.plugin.state.settings.skillsDir,
+            folderName,
+            'user-invocable',
+            value ? 'true' : 'false'
+          );
+          if (success) {
+            this.allSkills = new Map();
+            this.display();
+          }
+        })
+      );
 
     try {
       const listing = await adapter.list(skillPath);

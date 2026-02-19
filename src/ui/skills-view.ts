@@ -2,7 +2,7 @@ import { ItemView, WorkspaceLeaf, Notice, Setting } from 'obsidian';
 import type SkillsManagerPlugin from '../main';
 import { SkillMeta, SecurityScanResult } from '../types';
 import { scanSkills } from '../scanner';
-import { toggleSkill } from '../toggler';
+import { toggleSkill, setSkillField } from '../toggler';
 import { checkForUpdate } from '../github';
 import { updateGitHubSkill } from '../installer';
 import { scanForThreats } from '../validator';
@@ -186,10 +186,11 @@ export class SkillsView extends ItemView {
     const descP = header.createEl('p', { text: meta.description });
     descP.addClass('skills-manager-view-detail-desc');
 
-    // Toggle
+    // Toggles
     const toggleRow = this.detailPane.createDiv('skills-manager-view-detail-toggle');
     new Setting(toggleRow)
-      .setName(meta.disableModelInvocation ? 'Disabled' : 'Enabled')
+      .setName('Auto-loading')
+      .setDesc('Allow the model to load this skill automatically')
       .addToggle((toggle) =>
         toggle.setValue(!meta.disableModelInvocation).onChange(async (value) => {
           const success = await toggleSkill(
@@ -197,6 +198,26 @@ export class SkillsView extends ItemView {
             this.plugin.state.settings.skillsDir,
             folderName,
             !value
+          );
+          if (success) {
+            await this.refresh();
+            this.selectedSkill = folderName;
+            this.renderDetail();
+          }
+        })
+      );
+
+    new Setting(toggleRow)
+      .setName('User-invocable command')
+      .setDesc('Allow the user to invoke this skill as a slash command')
+      .addToggle((toggle) =>
+        toggle.setValue(meta.userInvocable).onChange(async (value) => {
+          const success = await setSkillField(
+            this.app.vault,
+            this.plugin.state.settings.skillsDir,
+            folderName,
+            'user-invocable',
+            value ? 'true' : 'false'
           );
           if (success) {
             await this.refresh();
@@ -215,12 +236,13 @@ export class SkillsView extends ItemView {
     };
 
     addRow('Category', meta.category);
-    addRow('User Invocable', meta.userInvocable ? 'Yes' : 'No');
     if (meta.version) addRow('Version', meta.version);
     if (meta.origin) addRow('Origin', meta.origin);
     if (meta.originRepo) addRow('Origin Repo', meta.originRepo);
     if (meta.originUrl) addRow('Origin URL', meta.originUrl);
     if (meta.license) addRow('License', meta.license);
+    if (meta.compatibility) addRow('Compatibility', meta.compatibility);
+    if (meta.allowedTools) addRow('Allowed Tools', meta.allowedTools);
 
     if (skillState) {
       addRow('Source', skillState.source);

@@ -3,25 +3,9 @@ import { InstallResult, SkillState } from './types';
 import { validateSkillDir } from './validator';
 import { fetchReleases, fetchSkillFiles, fetchLatestRelease, fetchSubpathFiles, fetchDefaultBranch, findSkillSubpath } from './github';
 import { StateManager } from './state';
+import { REQUIRED_FIELDS } from './frontmatter-template';
 import JSZip from 'jszip';
 
-/**
- * Standard frontmatter fields for SKILL.md.
- * These are the fields that Obsidian Bases can query for database views.
- *
- * Template:
- * ---
- * name: skill-name
- * description: What this skill does
- * category: utilities
- * version: 1.0.0
- * disable-model-invocation: false
- * user-invocable: true
- * source: github
- * origin-repo: owner/repo
- * origin-url: https://github.com/owner/repo
- * ---
- */
 interface FrontmatterDefaults {
   category?: string;
   version?: string;
@@ -58,11 +42,11 @@ async function ensureFrontmatter(
       }
     };
 
-    // Required fields with defaults
-    ensureField('category', defaults.category || 'uncategorized');
-    ensureField('version', defaults.version || '1.0.0');
-    ensureField('disable-model-invocation', 'false');
-    ensureField('user-invocable', 'true');
+    // Required fields from shared template
+    for (const { field, defaultValue } of REQUIRED_FIELDS) {
+      const override = (defaults as Record<string, string | undefined>)[field];
+      ensureField(field, override || defaultValue);
+    }
 
     // Source tracking fields
     if (defaults.source) {

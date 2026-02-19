@@ -1,7 +1,7 @@
 import { App, Modal, Notice, requestUrl } from 'obsidian';
 import type SkillsManagerPlugin from '../main';
 import { RegistrySkill } from '../types';
-import { installFromGitHub } from '../installer';
+import { installFromGitHub, installFromMonorepo } from '../installer';
 
 type Board = 'all-time' | 'trending' | 'hot';
 
@@ -179,14 +179,31 @@ export class RegistryModal extends Modal {
       installBtn.disabled = true;
 
       const pat = this.plugin.state.settings.githubPat || undefined;
-      const result = await installFromGitHub(
-        this.app.vault,
-        this.plugin.state,
-        this.plugin.state.settings.skillsDir,
-        skill.source,
-        undefined,
-        pat
-      );
+      const repo = skill.source;
+      const skillId = skill.skillId;
+      const repoName = repo.split('/').pop() || '';
+      const isMonorepo = skillId && skillId !== repoName;
+
+      let result;
+      if (isMonorepo) {
+        result = await installFromMonorepo(
+          this.app.vault,
+          this.plugin.state,
+          this.plugin.state.settings.skillsDir,
+          repo,
+          skillId,
+          pat
+        );
+      } else {
+        result = await installFromGitHub(
+          this.app.vault,
+          this.plugin.state,
+          this.plugin.state.settings.skillsDir,
+          repo,
+          undefined,
+          pat
+        );
+      }
 
       if (result.success) {
         new Notice(`Installed: ${result.skillName}`);

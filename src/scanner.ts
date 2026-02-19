@@ -47,6 +47,8 @@ function toSkillMeta(fields: Record<string, string>, defaultCategory: string): S
     originUrl: stripQuotes(fields['origin-url']) || undefined,
     origin: stripQuotes(fields['origin']) || undefined,
     license: stripQuotes(fields['license']) || undefined,
+    compatibility: stripQuotes(fields['compatibility']) || undefined,
+    allowedTools: stripQuotes(fields['allowed-tools']) || undefined,
   };
 }
 

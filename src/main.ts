@@ -8,6 +8,7 @@ import { installFromGitHub, updateGitHubSkill } from './installer';
 import { exportSkills, generateSkillsIndex } from './exporter';
 import { parseRepo } from './github';
 import { SkillsView, VIEW_TYPE_SKILLS } from './ui/skills-view';
+import { writeFrontmatterTemplate } from './frontmatter-template';
 
 export default class SkillsManagerPlugin extends Plugin {
   state!: StateManager;
@@ -133,6 +134,9 @@ export default class SkillsManagerPlugin extends Plugin {
         }
       },
     });
+
+    // Write frontmatter template to skills directory
+    writeFrontmatterTemplate(this.app.vault, this.state.settings.skillsDir);
 
     // Startup update check (60s delay)
     if (this.state.settings.autoUpdate) {

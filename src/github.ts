@@ -367,6 +367,82 @@ export async function fetchSubpathFiles(
 }
 
 /**
+ * Find the actual subdirectory path for a skill in a monorepo.
+ * The skillId from registries often doesn't match the folder name exactly
+ * (e.g. skillId "remotion-best-practices" lives at "skills/remotion/").
+ * Searches the tree for SKILL.md files and returns the directory containing
+ * the best match.
+ */
+export async function findSkillSubpath(
+  repo: string,
+  skillId: string,
+  ref: string,
+  pat?: string
+): Promise<string | null> {
+  const encodedRef = encodeURIComponent(ref);
+  const url = `${GITHUB_API}/repos/${repo}/git/trees/${encodedRef}?recursive=1`;
+  const response = await requestUrl({
+    url,
+    headers: authHeaders(pat),
+    throw: false,
+  });
+
+  if (response.status !== 200) return null;
+
+  const tree = (response.json as { tree: { path: string; type: string }[] }).tree;
+  const skillMdPaths = tree
+    .filter((e) => e.type === 'blob' && e.path.endsWith('/SKILL.md'))
+    .map((e) => e.path);
+
+  if (skillMdPaths.length === 0) return null;
+
+  // If there's only one SKILL.md, use its directory
+  if (skillMdPaths.length === 1) {
+    return skillMdPaths[0].replace(/\/SKILL\.md$/, '');
+  }
+
+  // Try exact folder name match first
+  const exactMatch = skillMdPaths.find((p) => {
+    const dir = p.replace(/\/SKILL\.md$/, '');
+    const folderName = dir.split('/').pop() || '';
+    return folderName === skillId;
+  });
+  if (exactMatch) return exactMatch.replace(/\/SKILL\.md$/, '');
+
+  // Try partial match: skillId contains the folder name or vice versa
+  const partialMatch = skillMdPaths.find((p) => {
+    const dir = p.replace(/\/SKILL\.md$/, '');
+    const folderName = dir.split('/').pop() || '';
+    return skillId.includes(folderName) || folderName.includes(skillId);
+  });
+  if (partialMatch) return partialMatch.replace(/\/SKILL\.md$/, '');
+
+  // Try reading SKILL.md frontmatter to match by name field
+  for (const mdPath of skillMdPaths) {
+    try {
+      const encodedPath = mdPath.split('/').map((part) => encodeURIComponent(part)).join('/');
+      const rawUrl = `https://raw.githubusercontent.com/${repo}/${encodedRef}/${encodedPath}`;
+      const headers: Record<string, string> = {};
+      if (pat) headers['Authorization'] = `Token ${pat}`;
+      const fileResp = await requestUrl({ url: rawUrl, headers, throw: false });
+      if (fileResp.status === 200) {
+        const nameMatch = fileResp.text.match(/^name:\s*["']?(.+?)["']?\s*$/m);
+        if (nameMatch) {
+          const name = nameMatch[1].toLowerCase().replace(/\s+/g, '-');
+          if (name === skillId.toLowerCase() || skillId.toLowerCase().includes(name)) {
+            return mdPath.replace(/\/SKILL\.md$/, '');
+          }
+        }
+      }
+    } catch {
+      // Skip
+    }
+  }
+
+  return null;
+}
+
+/**
  * Resolve a skills.sh skill ID to its GitHub source repo.
  */
 export async function fetchSkillsShInfo(

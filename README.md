@@ -2,153 +2,333 @@
 
 **Manage AI agent skills visually inside Obsidian** — install, toggle, update, and organize skills for Claude Code, Cursor, Copilot, and other AI coding agents.
 
+## What Are Skills?
+
+Skills are packaged instructions in `SKILL.md` format that teach AI agents specialized capabilities. Each skill lives in its own folder with a `SKILL.md` file containing YAML frontmatter (metadata) and markdown instructions. This plugin provides a GUI to manage them — similar to how Obsidian manages community plugins.
+
+## Features Overview
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Scan & list skills | Working | Reads `SKILL.md` frontmatter from skills directory |
+| Toggle enable/disable | Working | Flips `disable-model-invocation` in SKILL.md |
+| Collapsible categories | Working | Groups skills by category, all collapsed by default |
+| Search & filter | Working | Filter by name, description, or category |
+| Skill detail view | Working | Expand skill to see metadata, file tree, instructions |
+| Install from GitHub | Working | Standard `owner/repo` format |
+| Install from monorepo | Working | Auto-discovers skill subfolder in multi-skill repos |
+| Install from local folder | Working | Register existing skill folder in vault |
+| Install from ZIP | Not implemented | Type exists but no UI or extraction logic |
+| Marketplace browsing | Working | Browse Skills.sh and SkillsMP from settings tab |
+| Tessl registry | Not implemented | No public REST API; CLI only |
+| Version checking | Working | Compares local version against GitHub releases (semver) |
+| Version freezing | Working | Lock a skill to prevent auto-updates |
+| Auto-update on startup | Working | Checks unfrozen GitHub skills 60s after load |
+| Bulk enable/disable/update | Working | Operates on visible (filtered) skills |
+| Cross-tool export | Working | Exports to Cursor, Copilot, Windsurf, Cline |
+| Security scanning | Working | Detects suspicious patterns in skill files |
+| Protocol handler | Working | `obsidian://skills-manager?action=install&repo=owner/repo` |
+| Frontmatter normalization | Working | Auto-fills missing standard fields on install |
+| Skills View panel | Working | Sidebar split-pane view (separate from settings) |
+
 ---
 
-## The Problem
+## Settings Tab
 
-AI coding agents use **skills** (packaged instructions in `SKILL.md` format) to learn specialized capabilities. But managing 50+ skills means:
-- Manually editing frontmatter to enable/disable
-- No overview of what's installed or active
-- No easy way to install skills from GitHub or register local skill folders
-- No update mechanism — you manually re-download
-- No visibility across tools (Claude vs. Cursor vs. Copilot)
+All management happens in **Settings > Skills Manager**. The tab has three sections:
 
-## The Solution
+### Configuration (collapsed by default)
 
-An Obsidian plugin that brings the **community plugins UX** to agent skills:
+Click the **Configuration** heading to expand. Contains:
 
+- **Skills directory** — path relative to vault root (default: `.claude/skills`)
+- **GitHub PAT** — Personal Access Token for private repos and higher rate limits
+- **Auto-check for updates** — toggle to check on startup
+- **Marketplace registries** — add/remove/configure registry sources
+- **Cross-tool export** — toggle and configure export targets
+
+### Installed Tab
+
+Shows all skills found in your skills directory, grouped by category.
+
+- **Categories are collapsible** — click a category header to expand/collapse
+- **Search bar** — filters skills and auto-expands matching categories
+- **Stats line** — total skills, enabled/disabled count
+- **Bulk buttons** — Enable All, Disable All, Update All
+- **Per-skill controls:**
+  - Toggle switch (enable/disable)
+  - Category, source, version badges
+  - Lock icon (freeze/unfreeze version)
+  - Refresh icon (check for update)
+  - Trash icon (delete with confirmation)
+  - Click skill name to expand detail panel
+
+### Marketplace Tab
+
+Browse and install skills from online registries.
+
+- **Registry selector** — switch between configured registries
+- **Board tabs** — sort options (All Time, Trending, Hot for Skills.sh)
+- **Search/filter** — filter displayed results
+- **Install button** — installs skill and shows result in activity log
+- **Activity log** — shows install results with category placement
+- **Clickthrough links** — skill names link to GitHub source
+
+---
+
+## Install Methods
+
+### From GitHub (standard repo)
+
+For repos where `SKILL.md` is at the root:
+
+1. Settings > Skills Manager > Installed tab > **+ Add Skill**
+2. Switch to **Remote** tab
+3. Enter `owner/repo` (e.g., `kepano/obsidian-skills`)
+4. Click **Fetch Versions** to see available releases
+5. Click **Install**
+
+### From GitHub (monorepo)
+
+For repos containing multiple skills in subdirectories (e.g., `vercel-labs/agent-skills`):
+
+1. Same as above, but enter `owner/repo/path/to/skill`
+2. Or install from the Marketplace tab — monorepo detection is automatic
+
+**How monorepo detection works:** When a skill's `skillId` from the registry doesn't match the repo name, the installer:
+1. Tries the `skillId` as a direct subfolder path
+2. If that fails, searches the repo tree for all `SKILL.md` files
+3. Matches by folder name, partial name match, or SKILL.md `name` field
+4. Installs from the resolved path
+
+### From Local Folder
+
+1. **+ Add Skill** > **Local** tab
+2. Enter path relative to vault root
+3. Validates SKILL.md structure before registering
+
+### From Marketplace
+
+1. Switch to **Marketplace** tab in settings
+2. Browse or search for skills
+3. Click **Install** — the activity log shows success/failure and category
+
+### Via Protocol Handler
+
+Open this URL to install directly:
 ```
-┌─────────────────────────────────────────────────────────┐
-│  Skills Manager                              [+ Add]    │
-├─────────────────────────────────────────────────────────┤
-│  [Filter skills...                              ]       │
-│  [Enable All] [Disable All] [Update All]                │
-│                                                         │
-│  ┌─ Marketing (3) ──────────────────────────────────┐   │
-│  │  ☑ seo-audit              v2.0.1  [GitHub]  ⚠   │   │
-│  │    Comprehensive SEO audit    [🔒] [↻] [🗑]      │   │
-│  │  ☑ copywriting             v1.1.0  [Local]       │   │
-│  │    Write marketing copy       [🗑]                │   │
-│  └──────────────────────────────────────────────────┘   │
-│                                                         │
-│  ┌─ Business (2) ───────────────────────────────────┐   │
-│  │  ☑ business-x-ray         v1.2.0  [GitHub]      │   │
-│  │    ▼ Detail: Source: github · Repo: brncx/...    │   │
-│  │      Files: SKILL.md, scripts/analyze.py         │   │
-│  │      Security (safe): No threats detected        │   │
-│  │  ☐ code-audit-web-full    v1.0.0  [Local]       │   │
-│  └──────────────────────────────────────────────────┘   │
-│                                                         │
-│  ┌─ Settings ───────────────────────────────────────┐   │
-│  │  Skills directory    .claude/skills/             │   │
-│  │  GitHub PAT          ••••••••••••                │   │
-│  │  Auto-update         ☑ Check on startup          │   │
-│  │  Cross-tool export   ☑ Cursor  ☐ Copilot        │   │
-│  └──────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────┘
+obsidian://skills-manager?action=install&repo=owner/repo
 ```
 
-## Features
+---
 
-- **Scan & list** all skills from `.claude/skills/` with name + description from YAML frontmatter
-- **Toggle enable/disable** — flips `disable-model-invocation` in SKILL.md frontmatter (skills stay in place, like Obsidian's community-plugins.json pattern)
-- **Install from GitHub** — provide `owner/repo`, downloads skill to `.claude/skills/`
-- **Register local skills** — point to an existing skill folder in your vault
-- **Auto-update** — checks for new versions on Obsidian startup
-- **Version freezing** — pin a skill to a specific release tag
-- **Private repos** — GitHub Personal Access Token support
-- **Registry browsing** — browse skills.sh catalog from within Obsidian
-- **Cross-tool export** — export enabled skills to Cursor, Copilot, Windsurf, Cline via dotagent patterns
-- **Security scanning** — detect suspicious patterns (shell commands, network calls) in skill scripts
-- **Bulk operations** — enable/disable all, update all (respects active search filter)
-- **Search & filter** — find skills by name, description, or category
-- **Skill detail view** — expand to see full SKILL.md content, file tree, metadata, and security scan results
-- **Protocol handler** — install skills via `obsidian://skills-manager?action=install&repo=owner/repo`
-- **Configurable skills path** — default `.claude/skills/`, customizable per vault
+## SKILL.md Frontmatter Template
 
-## Commands
+Every skill should have these standard fields in its SKILL.md frontmatter. The installer auto-fills missing fields on install.
+
+```yaml
+---
+name: skill-name
+description: What this skill does
+category: utilities
+version: 1.0.0
+disable-model-invocation: false
+user-invocable: true
+source: github
+origin-repo: owner/repo
+origin-url: https://github.com/owner/repo
+---
+```
+
+### Field Reference
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `name` | Yes | — | Skill identifier (kebab-case) |
+| `description` | Yes | — | What the skill does |
+| `category` | Yes | `utilities` | Grouping category (see list below) |
+| `version` | No | `1.0.0` | Semantic version |
+| `disable-model-invocation` | Yes | `false` | `true` = disabled, `false` = enabled |
+| `user-invocable` | Yes | `true` | Whether users can invoke directly |
+| `source` | No | — | Install source: `github`, `local`, `zip` |
+| `origin-repo` | No | — | GitHub `owner/repo` reference |
+| `origin-url` | No | — | Full URL to source |
+| `origin` | No | — | Author/creator attribution |
+| `license` | No | — | License identifier |
+
+### Categories
+
+`marketing`, `seo`, `documents`, `diagramming`, `obsidian`, `notion`, `business`, `research`, `development`, `productivity`, `sales`, `utilities`
+
+Skills with unrecognized categories appear under **Other**.
+
+### Obsidian Bases Compatibility
+
+All frontmatter fields are queryable via Obsidian Bases for database views. You can create views showing:
+- Enabled vs. disabled skills (`disable-model-invocation`)
+- Skills grouped by category
+- Version tracking
+- Source attribution (`origin-repo`, `source`)
+
+---
+
+## Version Management
+
+### How Updates Work
+
+1. **Check for update** — compares local version tag against latest GitHub release using semver
+2. **Update** — re-downloads the skill from the latest (or selected) release
+3. **Version freeze** — lock icon prevents a skill from being updated
+
+### Limitations
+
+| Scenario | Update Support |
+|----------|---------------|
+| Standalone GitHub repo with releases | Full support (semver comparison) |
+| Monorepo skills | Limited — no release-based versioning |
+| Local skills | No update checking |
+| Skills without version tags | Cannot compare versions |
+
+**Freeze/unfreeze state** is stored in the plugin's `data.json` (not in SKILL.md frontmatter).
+
+---
+
+## Marketplace Registries
+
+### Supported Registries
+
+| Registry | Status | Auth | Boards |
+|----------|--------|------|--------|
+| [Skills.sh](https://skills.sh) | Working | None | All Time, Trending, Hot |
+| [SkillsMP](https://skillsmp.com) | Working | API key required | Most Stars, Recent |
+| [Tessl](https://tessl.io) | Not working | — | No public REST API |
+
+### Adding a Registry
+
+1. Expand **Configuration** in settings
+2. Scroll to **Marketplace registries**
+3. Click **+ Add registry**
+4. Select type, set name and URL
+5. For SkillsMP: enter API key (get one at skillsmp.com/settings/api)
+
+### Default
+
+Skills.sh is configured by default. No API key needed.
+
+---
+
+## Cross-Tool Export
+
+Export enabled skills to other AI tool configurations:
+
+| Target | Output Path | Format |
+|--------|------------|--------|
+| Cursor | `.cursor/rules/skills.md` | Combined markdown |
+| GitHub Copilot | `.github/copilot-instructions.md` | Combined markdown |
+| Windsurf | `.windsurf/rules/skills.md` | Combined markdown |
+| Cline | `.clinerules/skills.md` | Combined markdown |
+
+### How It Works
+
+- Only **enabled** skills are exported
+- All skill instructions are concatenated into a single file per target
+- Directories are created automatically
+- Export runs automatically when toggling skills (if enabled)
+- Manual export via command palette: **Skills Manager: Export to tools**
+
+---
+
+## Security Scanning
+
+Skills are scanned for suspicious patterns on install and display.
+
+### Threat Levels
+
+- **Warning** — potentially risky patterns: `curl`, `wget`, `exec()`, network requests
+- **Danger** — high-risk patterns: `rm -rf`, `eval()`, `curl|bash`, prompt injection attempts
+
+### What's Scanned
+
+- SKILL.md body content
+- Files in `scripts/` subdirectory
+- Prompt injection patterns (e.g., "ignore previous instructions", role overrides)
+
+### UI Indicators
+
+- Badge on skill row: `warning` or `danger`
+- Tooltip with threat details
+- Full threat list in expanded detail panel
+
+---
+
+## Command Palette
 
 | Command | Description |
-|---|---|
-| **List skills** | Open settings panel with skill overview |
-| **Rescan skills** | Refresh the skills list from disk |
-| **Add skill** | Open modal to install from GitHub or register local folder |
-| **Check for updates** | Check all GitHub skills for new versions |
-| **Update all skills** | Update all non-frozen GitHub skills to latest |
-| **Browse registry** | Browse and install from skills.sh catalog |
-| **Export to tools** | Write enabled skills to configured tool configs |
+|---------|-------------|
+| List skills | Open settings panel |
+| Rescan skills | Refresh skill list from disk |
+| Add skill | Open install modal (local or remote) |
+| Check for updates | Check all GitHub skills for new versions |
+| Update all skills | Update all unfrozen GitHub skills |
+| Browse registry | Open registry browsing modal |
+| Open skills view | Open sidebar split-pane view |
+| Export to tools | Export enabled skills to tool configs |
+
+---
+
+## Known Limitations
+
+- **ZIP installation** — type defined but no implementation (no upload/extract UI)
+- **Tessl registry** — no public REST API available
+- **Monorepo updates** — no release-based version tracking for monorepo skills
+- **No install cancellation** — running installs cannot be cancelled
+- **GitHub rate limits** — unauthenticated requests limited to 60/hour (add PAT for 5000/hour)
+- **Cross-tool export format** — all targets get the same combined markdown format (no customization)
+- **Frozen state** — stored in plugin data only (not in SKILL.md frontmatter, not visible to Bases)
+
+---
 
 ## Installation
 
-### From Community Plugins (when published)
-1. Open Settings → Community Plugins → Browse
-2. Search "Skills Manager"
-3. Install and enable
+### Manual
+
+1. Download `main.js`, `manifest.json`, and `styles.css` from releases
+2. Create `.obsidian/plugins/obsidian-skills-manager/` in your vault
+3. Copy the three files there
+4. Reload Obsidian and enable the plugin in Settings > Community Plugins
 
 ### Beta via BRAT
+
 1. Install [BRAT](https://github.com/TfTHacker/obsidian42-brat)
 2. Add beta plugin: `brncx/obsidian-skills-manager`
 3. Enable the plugin
 
-### Manual
-1. Download the latest release from [Releases](https://github.com/brncx/obsidian-skills-manager/releases)
-2. Extract to `.obsidian/plugins/obsidian-skills-manager/`
-3. Reload Obsidian and enable the plugin
+### Build from Source
 
-## Usage
+```bash
+npm install
+npm run build
+```
 
-### Adding Skills
+Output: `main.js` in project root.
 
-**From GitHub:**
-1. Command palette → "Skills Manager: Add skill"
-2. Enter `owner/repo` (e.g., `kepano/obsidian-skills`)
-3. Plugin downloads and installs
+---
 
-**From Local Folder:**
-1. Command palette → "Skills Manager: Add skill"
-2. Enter the path to an existing skill folder (e.g., `.claude/skills/my-skill`)
-3. Plugin validates structure (checks for `SKILL.md` with required frontmatter)
+## Development
 
-**Via Protocol Handler:**
-Open `obsidian://skills-manager?action=install&repo=owner/repo` to install directly.
+See [DEVELOPMENT.md](DEVELOPMENT.md) for architecture details and build instructions.
 
-### Managing Skills
-
-- Open Settings → Skills Manager to see all installed skills
-- Toggle the checkbox to enable/disable (sets `disable-model-invocation` in SKILL.md frontmatter)
-- Skills are grouped by category (marketing, obsidian, docs, etc.)
-- Click a skill name to view full description, file tree, and security scan results
-- Use search bar to filter by name, description, or category
-- Use bulk buttons to enable/disable/update all visible skills
-
-### Configuration
-
-| Setting | Default | Description |
-|---|---|---|
-| Skills directory | `.claude/skills/` | Where skills are stored |
-| GitHub PAT | — | Personal access token for private repos |
-| Auto-update | On startup | When to check for skill updates |
-| Cross-tool export | Off | Export skill state to Cursor/Copilot/Windsurf/Cline configs |
-
-## Compatibility
-
-This plugin manages skills following the [Agent Skills Specification](https://github.com/agentskills/agentskills) — an open standard adopted by 20+ platforms:
-
-- **Claude Code** — native `.claude/skills/` support
-- **Cursor** — via dotagent export to `.cursor/rules/`
-- **GitHub Copilot** — via dotagent export to `.github/copilot-instructions.md`
-- **Codex, Gemini CLI, Windsurf** — via dotagent cross-tool export
-
-## Contributing
-
-See [DEVELOPMENT.md](DEVELOPMENT.md) for architecture, build instructions, and roadmap.
-
-## License
-
-MIT
+```bash
+npm run dev    # Watch mode (auto-rebuild)
+npm run build  # Production build
+```
 
 ## Credits
 
 - Architecture inspired by [BRAT](https://github.com/TfTHacker/obsidian42-brat) by TfTHacker
-- Skills format follows the [Agent Skills Specification](https://github.com/agentskills/agentskills) by Anthropic
+- Skills format follows the [Agent Skills Specification](https://github.com/agentskills/agentskills)
 - Cross-tool bridging inspired by [dotagent](https://github.com/johnlindquist/dotagent)
+
+## License
+
+MIT
