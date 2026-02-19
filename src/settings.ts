@@ -2,10 +2,10 @@ import { App, Component, MarkdownRenderer, Modal, Notice, PluginSettingTab, Sett
 import type SkillsManagerPlugin from './main';
 import {
   SkillMeta, RegistrySkill, RegistryConfig, RegistryType,
-  CATEGORY_ORDER, CATEGORY_DISPLAY, SecurityScanResult,
+  SecurityScanResult,
 } from './types';
 import { scanSkills } from './scanner';
-import { toggleSkill } from './toggler';
+import { toggleSkill, setSkillCategory } from './toggler';
 import { deleteSkill, updateGitHubSkill, installFromGitHub, installFromMonorepo } from './installer';
 import { checkForUpdate } from './github';
 import { AddSkillModal } from './ui/add-modal';
@@ -204,6 +204,22 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
               }
             })
         );
+
+      // --- Custom categories ---
+      const customCats = this.plugin.state.settings.customCategories || [];
+      new Setting(containerEl)
+        .setName('Custom categories')
+        .setDesc('Comma-separated list of additional categories for the dropdown')
+        .addText((text) => {
+          text
+            .setPlaceholder('e.g. analytics, design, devops')
+            .setValue(customCats.join(', '))
+            .onChange(async (value) => {
+              const cats = value.split(',').map((c) => c.trim()).filter(Boolean);
+              await this.plugin.state.updateSettings({ customCategories: cats });
+            });
+          text.inputEl.style.width = '300px';
+        });
 
       // --- Marketplace registries ---
       const registries = this.plugin.state.settings.registries || [];
@@ -538,11 +554,18 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
     // Group by category — collapsible
     const grouped = this.groupByCategory(skills);
 
-    for (const category of [...CATEGORY_ORDER, '_other']) {
+    // Render categories alphabetically by display name
+    const categoryKeys = Array.from(grouped.keys()).sort((a, b) => {
+      const nameA = a.toLowerCase();
+      const nameB = b.toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
+
+    for (const category of categoryKeys) {
       const entries = grouped.get(category);
       if (!entries || entries.length === 0) continue;
 
-      const displayName = category === '_other' ? 'Other' : (CATEGORY_DISPLAY[category] || category);
+      const displayName = category;
       const isCollapsed = this.collapsedCategories.has(category);
 
       const categoryContainer = container.createDiv('skills-manager-category');
@@ -579,8 +602,7 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
     for (const [, meta] of this.allSkills) {
       const text = `${meta.name} ${meta.description} ${meta.category}`.toLowerCase();
       if (text.includes(this.searchQuery)) {
-        const cat = CATEGORY_ORDER.includes(meta.category) ? meta.category : '_other';
-        this.collapsedCategories.delete(cat);
+        this.collapsedCategories.delete(meta.category || this.plugin.state.settings.defaultCategory || 'uncategorized');
       }
     }
   }
@@ -887,7 +909,7 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
 
     if (result.success) {
       // Read the installed skill's category
-      let categoryLabel = 'Utilities';
+      let installedCategory = '';
       try {
         const skillsDir = this.plugin.state.settings.skillsDir;
         const skillFile = `${skillsDir}/${result.skillName}/SKILL.md`;
@@ -895,8 +917,7 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
           const content = await this.app.vault.adapter.read(skillFile);
           const catMatch = content.match(/^category:\s*["']?(.+?)["']?\s*$/m);
           if (catMatch) {
-            const cat = catMatch[1].trim();
-            categoryLabel = CATEGORY_DISPLAY[cat] || cat;
+            installedCategory = catMatch[1].trim();
           }
         }
       } catch {
@@ -904,7 +925,7 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
       }
 
       this.installLog.push({
-        text: `Installed "${result.skillName}" → ${categoryLabel}`,
+        text: `Installed "${result.skillName}"${installedCategory ? ` → ${installedCategory}` : ''}`,
         success: true,
       });
       installBtn.setText('Installed');
@@ -1004,6 +1025,31 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
 
   // ─── Shared helpers ─────────────────────────────────────────
 
+  /**
+   * Get merged category list: predefined + custom from settings + discovered from loaded skills.
+   * Deduplicated and sorted alphabetically by display name.
+   */
+  private getAllCategories(): string[] {
+    const categories = new Set<string>();
+
+    // Add custom categories from settings
+    const custom = this.plugin.state.settings.customCategories || [];
+    for (const c of custom) {
+      if (c.trim()) categories.add(c.trim());
+    }
+
+    // Add categories discovered from loaded skills
+    for (const [, meta] of this.allSkills) {
+      if (meta.category) categories.add(meta.category);
+    }
+
+    return Array.from(categories).sort((a, b) => {
+      const nameA = a.toLowerCase();
+      const nameB = b.toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
+  }
+
   private renderSkillRow(
     container: HTMLElement,
     folderName: string,
@@ -1069,7 +1115,7 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
     const descEl = setting.descEl;
     if (descEl) {
       const badge = descEl.createSpan('skills-manager-badge');
-      badge.setText(CATEGORY_DISPLAY[meta.category] || meta.category);
+      badge.setText(meta.category);
 
       if (skillState) {
         const sourceBadge = descEl.createSpan('skills-manager-badge skills-manager-badge-source');
@@ -1090,6 +1136,19 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
 
       this.renderThreatBadge(descEl, folderName);
     }
+
+    // Edit button — opens SKILL.md in the editor
+    setting.addExtraButton((btn) => {
+      btn.setIcon('pencil')
+        .setTooltip('Edit SKILL.md')
+        .onClick(async () => {
+          const skillFile = `${this.plugin.state.settings.skillsDir}/${folderName}/SKILL.md`;
+          const file = this.app.vault.getAbstractFileByPath(skillFile);
+          if (file) {
+            await this.app.workspace.openLinkText(skillFile, '', false);
+          }
+        });
+    });
 
     // GitHub skill actions
     if (isGitHub) {
@@ -1235,6 +1294,38 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
       metaDiv.createEl('p', { text: items.join(' · '), cls: 'skills-manager-detail-meta-text' });
     }
 
+    // Category dropdown
+    const currentMeta = this.allSkills.get(folderName);
+    const categories = this.getAllCategories();
+    new Setting(panel)
+      .setName('Category')
+      .addDropdown((dd) => {
+        for (const cat of categories) {
+          dd.addOption(cat, cat);
+        }
+        dd.setValue(currentMeta?.category || this.plugin.state.settings.defaultCategory || 'uncategorized');
+        dd.onChange(async (value) => {
+          const success = await setSkillCategory(
+            this.app.vault,
+            this.plugin.state.settings.skillsDir,
+            folderName,
+            value
+          );
+          if (success) {
+            // Persist new category to custom list if not already known
+            const custom = this.plugin.state.settings.customCategories || [];
+            if (!custom.includes(value)) {
+              await this.plugin.state.updateSettings({
+                customCategories: [...custom, value],
+              });
+            }
+            this.allSkills = new Map(); // invalidate cache
+            this.plugin.regenerateIndex();
+            this.display();
+          }
+        });
+      });
+
     try {
       const listing = await adapter.list(skillPath);
       if (listing.files.length > 0 || listing.folders.length > 0) {
@@ -1305,9 +1396,7 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
     const grouped = new Map<string, [string, SkillMeta][]>();
 
     for (const [folderName, meta] of skills) {
-      const cat = CATEGORY_ORDER.includes(meta.category)
-        ? meta.category
-        : '_other';
+      const cat = meta.category || this.plugin.state.settings.defaultCategory || 'uncategorized';
       if (!grouped.has(cat)) grouped.set(cat, []);
       grouped.get(cat)!.push([folderName, meta]);
     }

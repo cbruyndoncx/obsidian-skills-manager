@@ -1,6 +1,5 @@
 import { Vault } from 'obsidian';
 import { scanSkills } from './scanner';
-import { CATEGORY_ORDER, CATEGORY_DISPLAY } from './types';
 
 const EXPORT_TARGETS: Record<string, string> = {
   cursor: '.cursor/rules/skills.md',
@@ -115,26 +114,19 @@ export async function generateSkillsIndex(
     grouped.get(cat)!.push({ name: meta.name, description: meta.description });
   }
 
-  // Build content in category order
+  // Build content — categories sorted alphabetically by display name
   const lines: string[] = ['# Available Skills', ''];
 
-  // Known categories first, in order
-  for (const cat of CATEGORY_ORDER) {
-    const entries = grouped.get(cat);
-    if (!entries || entries.length === 0) continue;
-    const displayName = CATEGORY_DISPLAY[cat] || cat.charAt(0).toUpperCase() + cat.slice(1);
-    lines.push(`## ${displayName}`);
-    for (const s of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-      lines.push(`- ${s.name}: ${s.description}`);
-    }
-    lines.push('');
-    grouped.delete(cat);
-  }
+  const sortedCategories = Array.from(grouped.keys()).sort((a, b) => {
+    const nameA = a.toLowerCase();
+    const nameB = b.toLowerCase();
+    return nameA.localeCompare(nameB);
+  });
 
-  // Any remaining categories not in the predefined order
-  for (const [cat, entries] of grouped) {
+  for (const cat of sortedCategories) {
+    const entries = grouped.get(cat)!;
     if (entries.length === 0) continue;
-    const displayName = cat.charAt(0).toUpperCase() + cat.slice(1);
+    const displayName = cat;
     lines.push(`## ${displayName}`);
     for (const s of entries.sort((a, b) => a.name.localeCompare(b.name))) {
       lines.push(`- ${s.name}: ${s.description}`);

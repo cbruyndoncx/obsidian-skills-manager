@@ -39,3 +39,41 @@ export async function toggleSkill(
   await adapter.write(skillFile, updated);
   return true;
 }
+
+/**
+ * Update the category field in a skill's SKILL.md frontmatter.
+ * Returns true if the file was successfully updated.
+ */
+export async function setSkillCategory(
+  vault: Vault,
+  skillsDir: string,
+  skillName: string,
+  category: string
+): Promise<boolean> {
+  const adapter = vault.adapter;
+  const skillFile = `${skillsDir}/${skillName}/SKILL.md`;
+
+  const exists = await adapter.exists(skillFile);
+  if (!exists) return false;
+
+  const content = await adapter.read(skillFile);
+
+  let updated: string;
+  if (/^category:\s*.+$/m.test(content)) {
+    updated = content.replace(
+      /^(category:\s*).+$/m,
+      `$1${category}`
+    );
+  } else {
+    // Insert field before closing ---
+    updated = content.replace(
+      /^(---\r?\n[\s\S]*?)(^---)/m,
+      `$1category: ${category}\n$2`
+    );
+  }
+
+  if (updated === content) return false;
+
+  await adapter.write(skillFile, updated);
+  return true;
+}

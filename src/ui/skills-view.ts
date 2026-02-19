@@ -1,6 +1,6 @@
 import { ItemView, WorkspaceLeaf, Notice, Setting } from 'obsidian';
 import type SkillsManagerPlugin from '../main';
-import { SkillMeta, CATEGORY_ORDER, CATEGORY_DISPLAY, SecurityScanResult } from '../types';
+import { SkillMeta, SecurityScanResult } from '../types';
 import { scanSkills } from '../scanner';
 import { toggleSkill } from '../toggler';
 import { checkForUpdate } from '../github';
@@ -106,16 +106,22 @@ export class SkillsView extends ItemView {
     // Group by category
     const grouped = new Map<string, [string, SkillMeta][]>();
     for (const [name, meta] of filtered) {
-      const cat = CATEGORY_ORDER.includes(meta.category) ? meta.category : '_other';
+      const cat = meta.category || 'uncategorized';
       if (!grouped.has(cat)) grouped.set(cat, []);
       grouped.get(cat)!.push([name, meta]);
     }
 
-    for (const category of [...CATEGORY_ORDER, '_other']) {
+    const sortedCategories = Array.from(grouped.keys()).sort((a, b) => {
+      const nameA = a.toLowerCase();
+      const nameB = b.toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
+
+    for (const category of sortedCategories) {
       const entries = grouped.get(category);
       if (!entries || entries.length === 0) continue;
 
-      const displayName = category === '_other' ? 'Other' : (CATEGORY_DISPLAY[category] || category);
+      const displayName = category;
       const catEl = this.listPane.createDiv('skills-manager-view-category');
       catEl.createEl('div', {
         text: `${displayName} (${entries.length})`,
@@ -208,7 +214,7 @@ export class SkillsView extends ItemView {
       tr.createEl('td', { text: value });
     };
 
-    addRow('Category', CATEGORY_DISPLAY[meta.category] || meta.category);
+    addRow('Category', meta.category);
     addRow('User Invocable', meta.userInvocable ? 'Yes' : 'No');
     if (meta.version) addRow('Version', meta.version);
     if (meta.origin) addRow('Origin', meta.origin);

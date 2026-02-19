@@ -35,6 +35,7 @@ export interface PluginSettings {
   githubPat: string;
   autoUpdate: boolean;
   defaultCategory: string;
+  customCategories: string[];
   generateSkillsIndex: boolean;
   crossToolExport: string[];
   crossToolExportEnabled: boolean;
@@ -51,6 +52,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   githubPat: '',
   autoUpdate: true,
   defaultCategory: 'uncategorized',
+  customCategories: [],
   generateSkillsIndex: true,
   crossToolExport: [],
   crossToolExportEnabled: false,
@@ -58,22 +60,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
     { type: 'skills-sh', name: 'Skills.sh', url: 'https://skills.sh/api/skills' },
   ],
 };
-
-export const CATEGORY_ORDER: string[] = [
-  'marketing',
-  'seo',
-  'documents',
-  'diagramming',
-  'obsidian',
-  'notion',
-  'business',
-  'research',
-  'development',
-  'productivity',
-  'sales',
-  'utilities',
-  'uncategorized',
-];
 
 export interface GitHubRelease {
   tag_name: string;
@@ -127,18 +113,3 @@ export interface UpdateCheckResult {
   latestVersion: string;
 }
 
-export const CATEGORY_DISPLAY: Record<string, string> = {
-  marketing: 'Marketing',
-  seo: 'SEO',
-  documents: 'Documents',
-  diagramming: 'Diagramming',
-  obsidian: 'Obsidian',
-  notion: 'Notion',
-  business: 'Business',
-  research: 'Research',
-  development: 'Development',
-  productivity: 'Productivity',
-  sales: 'Sales',
-  utilities: 'Utilities',
-  uncategorized: 'Uncategorized',
-};
