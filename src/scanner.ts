@@ -30,7 +30,7 @@ function stripQuotes(val: string | undefined): string {
   return val.replace(/^["']|["']$/g, '');
 }
 
-function toSkillMeta(fields: Record<string, string>): SkillMeta | null {
+function toSkillMeta(fields: Record<string, string>, defaultCategory: string): SkillMeta | null {
   const name = stripQuotes(fields['name']);
   const description = stripQuotes(fields['description']);
   if (!name || !description) return null;
@@ -38,10 +38,11 @@ function toSkillMeta(fields: Record<string, string>): SkillMeta | null {
   return {
     name,
     description,
-    category: stripQuotes(fields['category']) || 'utilities',
+    category: stripQuotes(fields['category']) || defaultCategory,
     disableModelInvocation: toBool(fields['disable-model-invocation'], false),
     userInvocable: toBool(fields['user-invocable'], true),
     version: stripQuotes(fields['version']) || undefined,
+    source: stripQuotes(fields['source']) || undefined,
     originRepo: stripQuotes(fields['origin-repo']) || undefined,
     originUrl: stripQuotes(fields['origin-url']) || undefined,
     origin: stripQuotes(fields['origin']) || undefined,
@@ -55,7 +56,8 @@ function toSkillMeta(fields: Record<string, string>): SkillMeta | null {
  */
 export async function scanSkills(
   vault: Vault,
-  skillsDir: string
+  skillsDir: string,
+  defaultCategory = 'uncategorized'
 ): Promise<Map<string, SkillMeta>> {
   const results = new Map<string, SkillMeta>();
   const adapter = vault.adapter;
@@ -66,6 +68,10 @@ export async function scanSkills(
   const listing = await adapter.list(skillsDir);
 
   for (const folder of listing.folders) {
+    // Skip staging and backup directories left by the installer
+    const baseName = folder.split('/').pop() || '';
+    if (baseName.startsWith('.') || baseName.includes('.backup-') || baseName.includes('.staging-')) continue;
+
     const skillFile = `${folder}/SKILL.md`;
     const fileExists = await adapter.exists(skillFile);
     if (!fileExists) continue;
@@ -73,7 +79,7 @@ export async function scanSkills(
     try {
       const content = await adapter.read(skillFile);
       const fields = parseFrontmatter(content);
-      const meta = toSkillMeta(fields);
+      const meta = toSkillMeta(fields, defaultCategory);
       if (meta) {
         // Use folder basename as the key
         const folderName = folder.split('/').pop() || folder;

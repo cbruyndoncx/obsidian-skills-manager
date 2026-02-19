@@ -1,5 +1,6 @@
 import { Vault } from 'obsidian';
 import { scanSkills } from './scanner';
+import { CATEGORY_ORDER, CATEGORY_DISPLAY } from './types';
 
 const EXPORT_TARGETS: Record<string, string> = {
   cursor: '.cursor/rules/skills.md',
@@ -93,4 +94,57 @@ export async function exportSkills(
   }
 
   return { exported, errors };
+}
+
+/**
+ * Generate SKILLS.md index at vault root listing all enabled skills grouped by category.
+ */
+export async function generateSkillsIndex(
+  vault: Vault,
+  skillsDir: string,
+  defaultCategory = 'uncategorized'
+): Promise<void> {
+  const skills = await scanSkills(vault, skillsDir, defaultCategory);
+
+  // Group by category
+  const grouped = new Map<string, { name: string; description: string }[]>();
+  for (const [, meta] of skills) {
+    if (meta.disableModelInvocation) continue;
+    const cat = meta.category;
+    if (!grouped.has(cat)) grouped.set(cat, []);
+    grouped.get(cat)!.push({ name: meta.name, description: meta.description });
+  }
+
+  // Build content in category order
+  const lines: string[] = ['# Available Skills', ''];
+
+  // Known categories first, in order
+  for (const cat of CATEGORY_ORDER) {
+    const entries = grouped.get(cat);
+    if (!entries || entries.length === 0) continue;
+    const displayName = CATEGORY_DISPLAY[cat] || cat.charAt(0).toUpperCase() + cat.slice(1);
+    lines.push(`## ${displayName}`);
+    for (const s of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      lines.push(`- ${s.name}: ${s.description}`);
+    }
+    lines.push('');
+    grouped.delete(cat);
+  }
+
+  // Any remaining categories not in the predefined order
+  for (const [cat, entries] of grouped) {
+    if (entries.length === 0) continue;
+    const displayName = cat.charAt(0).toUpperCase() + cat.slice(1);
+    lines.push(`## ${displayName}`);
+    for (const s of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      lines.push(`- ${s.name}: ${s.description}`);
+    }
+    lines.push('');
+  }
+
+  const total = Array.from(skills.values()).filter(m => !m.disableModelInvocation).length;
+  lines.push(`Total: ${total} enabled skills`);
+  lines.push('');
+
+  await vault.adapter.write('SKILLS.md', lines.join('\n'));
 }

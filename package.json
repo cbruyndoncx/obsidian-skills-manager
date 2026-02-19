@@ -16,6 +16,7 @@
     "typescript": "^5.7.0"
   },
   "dependencies": {
+    "jszip": "^3.10.1",
     "semver": "^7.7.0"
   }
 }

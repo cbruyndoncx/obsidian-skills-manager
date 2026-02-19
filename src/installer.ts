@@ -1,8 +1,86 @@
 import { Vault } from 'obsidian';
 import { InstallResult, SkillState } from './types';
 import { validateSkillDir } from './validator';
-import { fetchReleases, fetchSkillFiles, fetchLatestRelease, fetchSubpathFiles, fetchDefaultBranch } from './github';
+import { fetchReleases, fetchSkillFiles, fetchLatestRelease, fetchSubpathFiles, fetchDefaultBranch, findSkillSubpath } from './github';
 import { StateManager } from './state';
+import JSZip from 'jszip';
+
+/**
+ * Standard frontmatter fields for SKILL.md.
+ * These are the fields that Obsidian Bases can query for database views.
+ *
+ * Template:
+ * ---
+ * name: skill-name
+ * description: What this skill does
+ * category: utilities
+ * version: 1.0.0
+ * disable-model-invocation: false
+ * user-invocable: true
+ * source: github
+ * origin-repo: owner/repo
+ * origin-url: https://github.com/owner/repo
+ * ---
+ */
+interface FrontmatterDefaults {
+  category?: string;
+  version?: string;
+  source?: string;
+  'origin-repo'?: string;
+  'origin-url'?: string;
+}
+
+/**
+ * Ensure the SKILL.md frontmatter has all standard fields.
+ * Fills in missing fields with sensible defaults so every skill
+ * is queryable via Obsidian Bases.
+ */
+async function ensureFrontmatter(
+  adapter: Vault['adapter'],
+  skillFolder: string,
+  defaults: FrontmatterDefaults = {}
+): Promise<void> {
+  const skillFile = `${skillFolder}/SKILL.md`;
+  try {
+    if (!(await adapter.exists(skillFile))) return;
+    const content = await adapter.read(skillFile);
+    const fmMatch = content.match(/^(---\r?\n)([\s\S]*?)(\r?\n---)/);
+    if (!fmMatch) return;
+
+    let frontmatter = fmMatch[2];
+    let changed = false;
+
+    const ensureField = (field: string, value: string) => {
+      const regex = new RegExp(`^${field}\\s*:`, 'm');
+      if (!regex.test(frontmatter)) {
+        frontmatter += `\n${field}: ${value}`;
+        changed = true;
+      }
+    };
+
+    // Required fields with defaults
+    ensureField('category', defaults.category || 'uncategorized');
+    ensureField('version', defaults.version || '1.0.0');
+    ensureField('disable-model-invocation', 'false');
+    ensureField('user-invocable', 'true');
+
+    // Source tracking fields
+    if (defaults.source) {
+      ensureField('source', defaults.source);
+    }
+    if (defaults['origin-repo']) {
+      ensureField('origin-repo', defaults['origin-repo']);
+      ensureField('origin-url', defaults['origin-url'] || `https://github.com/${defaults['origin-repo']}`);
+    }
+
+    if (changed) {
+      const updated = `${fmMatch[1]}${frontmatter}${fmMatch[3]}${content.slice(fmMatch[0].length)}`;
+      await adapter.write(skillFile, updated);
+    }
+  } catch {
+    // Best-effort — don't fail the install over this
+  }
+}
 
 /**
  * Create a directory and all missing parent directories.
@@ -38,7 +116,7 @@ async function replaceDirWithStaging(
     await adapter.rename(stagingDir, targetDir);
 
     if (backedUp && (await adapter.exists(backupDir))) {
-      await removeDirRecursive(adapter, backupDir);
+      await adapter.rmdir(backupDir, true);
     }
   } catch (e) {
     if (backedUp) {
@@ -159,7 +237,7 @@ export async function installFromGitHub(
     if (!validation.valid) {
       try {
         if (await adapter.exists(stagingFolder)) {
-          await removeDirRecursive(adapter, stagingFolder);
+          await adapter.rmdir(stagingFolder, true);
         }
       } catch {
         // Best-effort cleanup
@@ -174,8 +252,15 @@ export async function installFromGitHub(
     // Promote staged directory to live directory, with rollback
     await replaceDirWithStaging(adapter, stagingFolder, skillFolder);
 
-    // Register in state
+    // Ensure all standard frontmatter fields exist
     const tag = release?.tag_name;
+    await ensureFrontmatter(adapter, skillFolder, {
+      source: 'github',
+      version: tag || '1.0.0',
+      'origin-repo': repo,
+    });
+
+    // Register in state
     const skillState: SkillState = {
       source: 'github',
       repo,
@@ -196,7 +281,7 @@ export async function installFromGitHub(
     if (stagingFolder) {
       try {
         if (await adapter.exists(stagingFolder)) {
-          await removeDirRecursive(adapter, stagingFolder);
+          await adapter.rmdir(stagingFolder, true);
         }
       } catch {
         // Best-effort cleanup
@@ -225,13 +310,33 @@ export async function installFromMonorepo(
 
   try {
     const ref = await fetchDefaultBranch(repo, pat);
-    const files = await fetchSubpathFiles(repo, subpath, ref, pat);
+    let files: Map<string, string>;
+    let actualSubpath = subpath;
+
+    try {
+      files = await fetchSubpathFiles(repo, subpath, ref, pat);
+    } catch {
+      // Direct subpath failed — search the repo tree for the right directory
+      console.log(`[Skills Manager] Direct subpath "${subpath}" not found, searching repo tree...`);
+      const resolved = await findSkillSubpath(repo, subpath, ref, pat);
+      if (resolved) {
+        console.log(`[Skills Manager] Resolved subpath: "${resolved}"`);
+        actualSubpath = resolved;
+        files = await fetchSubpathFiles(repo, resolved, ref, pat);
+      } else {
+        return {
+          success: false,
+          skillName: folderName,
+          errors: [`Could not find skill "${subpath}" in ${repo}`],
+        };
+      }
+    }
 
     if (!files.has('SKILL.md')) {
       return {
         success: false,
         skillName: folderName,
-        errors: [`No SKILL.md found under "${subpath}" in ${repo}`],
+        errors: [`No SKILL.md found under "${actualSubpath}" in ${repo}`],
       };
     }
 
@@ -250,7 +355,7 @@ export async function installFromMonorepo(
     if (!validation.valid) {
       try {
         if (await adapter.exists(stagingFolder)) {
-          await removeDirRecursive(adapter, stagingFolder);
+          await adapter.rmdir(stagingFolder, true);
         }
       } catch {
         // Best-effort cleanup
@@ -263,6 +368,12 @@ export async function installFromMonorepo(
     }
 
     await replaceDirWithStaging(adapter, stagingFolder, skillFolder);
+
+    // Ensure all standard frontmatter fields exist
+    await ensureFrontmatter(adapter, skillFolder, {
+      source: 'github',
+      'origin-repo': repo,
+    });
 
     const skillState: SkillState = {
       source: 'github',
@@ -282,7 +393,7 @@ export async function installFromMonorepo(
     if (stagingFolder) {
       try {
         if (await adapter.exists(stagingFolder)) {
-          await removeDirRecursive(adapter, stagingFolder);
+          await adapter.rmdir(stagingFolder, true);
         }
       } catch {
         // Best-effort cleanup
@@ -348,17 +459,201 @@ export async function updateGitHubSkill(
 }
 
 /**
- * Recursively remove a directory and all its contents.
+ * Install skills from a ZIP file.
+ * Finds all SKILL.md files in the ZIP, identifies skill folder boundaries,
+ * stages each one, validates, and installs into the configured skills directory.
  */
-async function removeDirRecursive(adapter: Vault['adapter'], dirPath: string): Promise<void> {
-  const listing = await adapter.list(dirPath);
-  for (const file of listing.files) {
-    await adapter.remove(file);
+export async function installFromZip(
+  vault: Vault,
+  state: StateManager,
+  skillsDir: string,
+  zipData: ArrayBuffer
+): Promise<{ installed: string[]; errors: string[] }> {
+  const adapter = vault.adapter;
+  const installed: string[] = [];
+  const errors: string[] = [];
+
+  // Parse ZIP
+  let zip: JSZip;
+  try {
+    zip = await JSZip.loadAsync(zipData);
+  } catch {
+    return { installed, errors: ['Invalid or corrupt ZIP file'] };
   }
-  for (const subfolder of listing.folders) {
-    await removeDirRecursive(adapter, subfolder);
+
+  // Find all SKILL.md files and their parent folders
+  const skillMdPaths: string[] = [];
+  zip.forEach((relativePath) => {
+    if (relativePath.endsWith('SKILL.md')) {
+      skillMdPaths.push(relativePath);
+    }
+  });
+
+  if (skillMdPaths.length === 0) {
+    return { installed, errors: ['No SKILL.md files found in ZIP'] };
   }
-  await adapter.rmdir(dirPath, false);
+
+  // Determine skill folders (parent dir of each SKILL.md)
+  const skillFolderPrefixes = skillMdPaths.map((p) => {
+    const parts = p.split('/');
+    parts.pop(); // remove SKILL.md
+    return parts.join('/');
+  });
+
+  // Detect common prefix to strip (nested wrapper directory)
+  let commonPrefix = '';
+  if (skillFolderPrefixes.length > 0) {
+    const first = skillFolderPrefixes[0];
+    const firstParts = first.split('/');
+    // Check if all skill folders share a common wrapper (depth 1)
+    if (firstParts.length >= 2) {
+      const candidate = firstParts[0];
+      const allShare = skillFolderPrefixes.every((p) => p.startsWith(candidate + '/'));
+      if (allShare) {
+        commonPrefix = candidate + '/';
+      }
+    }
+  }
+
+  // Group files by skill folder
+  const skillFolders = new Map<string, Map<string, JSZip.JSZipObject>>();
+  for (const prefix of skillFolderPrefixes) {
+    const folderName = commonPrefix ? prefix.slice(commonPrefix.length) : prefix;
+    if (!folderName) continue; // skip if SKILL.md is at root
+    skillFolders.set(folderName, new Map());
+  }
+
+  // Assign each file to its skill folder
+  zip.forEach((relativePath, file) => {
+    if (file.dir) return;
+    const stripped = commonPrefix ? relativePath.slice(commonPrefix.length) : relativePath;
+    for (const [folderName] of skillFolders) {
+      if (stripped.startsWith(folderName + '/') || stripped === folderName) {
+        skillFolders.get(folderName)!.set(stripped.slice(folderName.length + 1), file);
+        break;
+      }
+    }
+  });
+
+  // Install each skill folder
+  for (const [folderName, files] of skillFolders) {
+    const skillFolder = `${skillsDir}/${folderName}`;
+    const stagingFolder = `${skillsDir}/.${folderName}.staging-${Date.now()}`;
+
+    try {
+      await mkdirRecursive(adapter, stagingFolder);
+
+      // Write all files to staging
+      for (const [relativePath, zipObj] of files) {
+        const targetPath = `${stagingFolder}/${relativePath}`;
+        const parent = targetPath.substring(0, targetPath.lastIndexOf('/'));
+        if (parent) {
+          await mkdirRecursive(adapter, parent);
+        }
+        const content = await zipObj.async('string');
+        await adapter.write(targetPath, content);
+      }
+
+      // Validate
+      const validation = await validateSkillDir(vault, stagingFolder);
+      if (!validation.valid) {
+        errors.push(`${folderName}: ${validation.errors.join('; ')}`);
+        try {
+          if (await adapter.exists(stagingFolder)) {
+            await adapter.rmdir(stagingFolder, true);
+          }
+        } catch { /* best-effort cleanup */ }
+        continue;
+      }
+
+      // Promote staging to final
+      await replaceDirWithStaging(adapter, stagingFolder, skillFolder);
+
+      // Ensure frontmatter
+      await ensureFrontmatter(adapter, skillFolder, { source: 'zip' });
+
+      // Register state
+      const skillState: SkillState = {
+        source: 'zip',
+        frozen: false,
+        installedAt: new Date().toISOString(),
+      };
+      await state.setSkillState(folderName, skillState);
+
+      installed.push(folderName);
+    } catch (e) {
+      errors.push(`${folderName}: ${e instanceof Error ? e.message : String(e)}`);
+      try {
+        if (await adapter.exists(stagingFolder)) {
+          await adapter.rmdir(stagingFolder, true);
+        }
+      } catch { /* best-effort cleanup */ }
+    }
+  }
+
+  return { installed, errors };
+}
+
+/**
+ * Parse a ZIP file and return discovered skill folder names with their SKILL.md frontmatter name field.
+ */
+export async function previewZipSkills(
+  zipData: ArrayBuffer
+): Promise<{ skills: { folder: string; name: string }[]; error?: string }> {
+  let zip: JSZip;
+  try {
+    zip = await JSZip.loadAsync(zipData);
+  } catch {
+    return { skills: [], error: 'Invalid or corrupt ZIP file' };
+  }
+
+  // Find all SKILL.md files
+  const skillMdPaths: string[] = [];
+  zip.forEach((relativePath) => {
+    if (relativePath.endsWith('SKILL.md')) {
+      skillMdPaths.push(relativePath);
+    }
+  });
+
+  if (skillMdPaths.length === 0) {
+    return { skills: [], error: 'No SKILL.md files found in ZIP' };
+  }
+
+  // Determine common prefix
+  const skillFolderPrefixes = skillMdPaths.map((p) => {
+    const parts = p.split('/');
+    parts.pop();
+    return parts.join('/');
+  });
+
+  let commonPrefix = '';
+  if (skillFolderPrefixes.length > 0 && skillFolderPrefixes[0].includes('/')) {
+    const candidate = skillFolderPrefixes[0].split('/')[0];
+    if (skillFolderPrefixes.every((p) => p.startsWith(candidate + '/'))) {
+      commonPrefix = candidate + '/';
+    }
+  }
+
+  const skills: { folder: string; name: string }[] = [];
+  for (let i = 0; i < skillMdPaths.length; i++) {
+    const prefix = skillFolderPrefixes[i];
+    const folderName = commonPrefix ? prefix.slice(commonPrefix.length) : prefix;
+    if (!folderName) continue;
+
+    // Read SKILL.md content to extract name
+    const zipObj = zip.file(skillMdPaths[i]);
+    let name = folderName;
+    if (zipObj) {
+      try {
+        const content = await zipObj.async('string');
+        const nameMatch = content.match(/^name:\s*["']?(.+?)["']?\s*$/m);
+        if (nameMatch) name = nameMatch[1];
+      } catch { /* use folder name */ }
+    }
+    skills.push({ folder: folderName, name });
+  }
+
+  return { skills };
 }
 
 /**
@@ -374,12 +669,15 @@ export async function deleteSkill(
 
   try {
     if (await vault.adapter.exists(skillFolder)) {
-      await removeDirRecursive(vault.adapter, skillFolder);
+      // Use recursive rmdir — removeDirRecursive + adapter.list() can miss
+      // dotfiles and non-indexed files, leaving the directory non-empty.
+      await vault.adapter.rmdir(skillFolder, true);
     }
 
     await state.removeSkillState(folderName);
     return true;
-  } catch {
+  } catch (e) {
+    console.error(`[Skills Manager] Failed to delete skill "${folderName}":`, e);
     return false;
   }
 }

@@ -5,7 +5,7 @@ import { AddSkillModal } from './ui/add-modal';
 import { RegistryModal } from './ui/registry-modal';
 import { checkForUpdate } from './github';
 import { installFromGitHub, updateGitHubSkill } from './installer';
-import { exportSkills } from './exporter';
+import { exportSkills, generateSkillsIndex } from './exporter';
 import { parseRepo } from './github';
 import { SkillsView, VIEW_TYPE_SKILLS } from './ui/skills-view';
 
@@ -48,6 +48,7 @@ export default class SkillsManagerPlugin extends Plugin {
         );
         if (result.success) {
           new Notice(`Installed: ${result.skillName}`);
+          this.regenerateIndex();
           this.settingsTab.display();
         } else {
           new Notice(`Install failed: ${result.errors.join('; ')}`);
@@ -158,6 +159,23 @@ export default class SkillsManagerPlugin extends Plugin {
     }
   }
 
+  /**
+   * Regenerate SKILLS.md at vault root if the setting is enabled.
+   * Called after any skill change (toggle, install, delete, update).
+   */
+  async regenerateIndex(): Promise<void> {
+    if (!this.state.settings.generateSkillsIndex) return;
+    try {
+      await generateSkillsIndex(
+        this.app.vault,
+        this.state.settings.skillsDir,
+        this.state.settings.defaultCategory || 'uncategorized'
+      );
+    } catch (e) {
+      console.error('[Skills Manager] Failed to regenerate SKILLS.md:', e);
+    }
+  }
+
   private async checkAllUpdates(verbose: boolean): Promise<void> {
     const updatable = this.state.getUpdatableGitHubSkills();
     if (updatable.length === 0) {
@@ -211,6 +229,7 @@ export default class SkillsManagerPlugin extends Plugin {
     }
 
     new Notice(`Updated ${updated} skill(s)${failed > 0 ? `, ${failed} failed` : ''}`);
+    this.regenerateIndex();
     this.settingsTab.display();
   }
 }

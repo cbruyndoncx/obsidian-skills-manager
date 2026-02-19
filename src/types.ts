@@ -5,6 +5,7 @@ export interface SkillMeta {
   disableModelInvocation: boolean;
   userInvocable: boolean;
   version?: string;
+  source?: string;
   originRepo?: string;
   originUrl?: string;
   origin?: string;
@@ -20,12 +21,24 @@ export interface SkillState {
   lastUpdated?: string;
 }
 
+export type RegistryType = 'skills-sh' | 'skillsmp' | 'tessl';
+
+export interface RegistryConfig {
+  type: RegistryType;
+  name: string;
+  url: string;
+  apiKey?: string;
+}
+
 export interface PluginSettings {
   skillsDir: string;
   githubPat: string;
   autoUpdate: boolean;
+  defaultCategory: string;
+  generateSkillsIndex: boolean;
   crossToolExport: string[];
   crossToolExportEnabled: boolean;
+  registries: RegistryConfig[];
 }
 
 export interface PluginData {
@@ -37,8 +50,13 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   skillsDir: '.claude/skills',
   githubPat: '',
   autoUpdate: true,
+  defaultCategory: 'uncategorized',
+  generateSkillsIndex: true,
   crossToolExport: [],
   crossToolExportEnabled: false,
+  registries: [
+    { type: 'skills-sh', name: 'Skills.sh', url: 'https://skills.sh/api/skills' },
+  ],
 };
 
 export const CATEGORY_ORDER: string[] = [
@@ -50,7 +68,11 @@ export const CATEGORY_ORDER: string[] = [
   'notion',
   'business',
   'research',
+  'development',
+  'productivity',
+  'sales',
   'utilities',
+  'uncategorized',
 ];
 
 export interface GitHubRelease {
@@ -77,6 +99,9 @@ export interface RegistrySkill {
   skillId: string;
   name: string;
   installs: number;
+  description?: string;
+  stars?: number;
+  registryName?: string;
 }
 
 export interface SecurityThreat {
@@ -111,5 +136,9 @@ export const CATEGORY_DISPLAY: Record<string, string> = {
   notion: 'Notion',
   business: 'Business',
   research: 'Research',
+  development: 'Development',
+  productivity: 'Productivity',
+  sales: 'Sales',
   utilities: 'Utilities',
+  uncategorized: 'Uncategorized',
 };

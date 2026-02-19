@@ -54,7 +54,8 @@ export class SkillsView extends ItemView {
   async refresh(): Promise<void> {
     this.allSkills = await scanSkills(
       this.app.vault,
-      this.plugin.state.settings.skillsDir
+      this.plugin.state.settings.skillsDir,
+      this.plugin.state.settings.defaultCategory || 'uncategorized'
     );
     this.threatCache.clear();
     this.renderList();

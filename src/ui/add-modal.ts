@@ -1,20 +1,22 @@
-import { App, Modal, Notice, Setting } from 'obsidian';
+import { App, Modal, Notice, Setting, getBlobArrayBuffer } from 'obsidian';
 import type SkillsManagerPlugin from '../main';
-import { validateSkillDir } from '../validator';
-import { parseRepo, parseSkillRef, fetchReleases, fetchSkillsShInfo, SkillRef } from '../github';
-import { installLocalSkill, installFromGitHub, installFromMonorepo } from '../installer';
+import { parseSkillRef, fetchReleases, fetchSkillsShInfo, SkillRef } from '../github';
+import { installFromGitHub, installFromMonorepo, installFromZip, previewZipSkills } from '../installer';
 import { GitHubRelease } from '../types';
 
-type Tab = 'local' | 'remote';
+type Tab = 'zip' | 'remote';
 
 export class AddSkillModal extends Modal {
   private plugin: SkillsManagerPlugin;
-  private activeTab: Tab = 'local';
+  private activeTab: Tab = 'zip';
   private onDone: () => void;
 
-  // Local tab state
-  private localPath = '';
-  private localStatus = '';
+  // ZIP tab state
+  private zipData: ArrayBuffer | null = null;
+  private zipFileName = '';
+  private zipPreview: { folder: string; name: string }[] = [];
+  private zipStatus = '';
+  private zipInstalling = false;
 
   // Remote tab state
   private remoteInput = '';
@@ -46,11 +48,11 @@ export class AddSkillModal extends Modal {
     // Tab buttons
     const tabBar = contentEl.createDiv('skills-manager-tab-bar');
 
-    const localTab = tabBar.createEl('button', { text: 'Local Folder' });
-    localTab.addClass('skills-manager-tab');
-    if (this.activeTab === 'local') localTab.addClass('is-active');
-    localTab.addEventListener('click', () => {
-      this.activeTab = 'local';
+    const zipTab = tabBar.createEl('button', { text: 'Upload ZIP' });
+    zipTab.addClass('skills-manager-tab');
+    if (this.activeTab === 'zip') zipTab.addClass('is-active');
+    zipTab.addEventListener('click', () => {
+      this.activeTab = 'zip';
       this.render();
     });
 
@@ -65,72 +67,169 @@ export class AddSkillModal extends Modal {
     // Tab content
     const body = contentEl.createDiv('skills-manager-modal-body');
 
-    if (this.activeTab === 'local') {
-      this.renderLocalTab(body);
+    if (this.activeTab === 'zip') {
+      this.renderZipTab(body);
     } else {
       this.renderRemoteTab(body);
     }
   }
 
-  private renderLocalTab(container: HTMLElement): void {
-    new Setting(container)
-      .setName('Skill folder path')
-      .setDesc('Relative to vault root (e.g., .claude/skills/my-skill)')
-      .addText((text) =>
-        text
-          .setPlaceholder('.claude/skills/my-skill')
-          .setValue(this.localPath)
-          .onChange((value) => {
-            this.localPath = value;
-          })
-      );
+  private renderZipTab(container: HTMLElement): void {
+    // Drop zone / file picker
+    const dropZone = container.createDiv('skills-manager-drop-zone');
 
-    // Status message
-    if (this.localStatus) {
-      const status = container.createEl('p', { cls: 'skills-manager-modal-status' });
-      status.setText(this.localStatus);
+    if (this.zipFileName) {
+      dropZone.createEl('p', {
+        text: this.zipFileName,
+        cls: 'skills-manager-drop-zone-filename',
+      });
+      dropZone.createEl('p', {
+        text: 'Click or drop to replace',
+        cls: 'skills-manager-drop-zone-hint',
+      });
+    } else {
+      dropZone.createEl('p', {
+        text: 'Drop a ZIP file here or click to browse',
+        cls: 'skills-manager-drop-zone-hint',
+      });
     }
 
-    // Buttons
-    const btnRow = container.createDiv('skills-manager-modal-buttons');
+    // Hidden file input
+    const fileInput = dropZone.createEl('input', { type: 'file' });
+    fileInput.accept = '.zip';
+    fileInput.addClass('skills-manager-file-input');
 
-    const validateBtn = btnRow.createEl('button', { text: 'Validate' });
-    validateBtn.addEventListener('click', async () => {
-      if (!this.localPath) {
-        this.localStatus = 'Enter a folder path first';
-        this.render();
-        return;
-      }
-      const result = await validateSkillDir(this.app.vault, this.localPath);
-      if (result.valid) {
-        this.localStatus = 'Valid skill directory';
-      } else {
-        this.localStatus = result.errors.join('; ');
-      }
-      this.render();
+    // Click zone to trigger file input
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    // Drag and drop
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.addClass('is-dragover');
     });
-
-    const addBtn = btnRow.createEl('button', { text: 'Add Skill', cls: 'mod-cta' });
-    addBtn.addEventListener('click', async () => {
-      if (!this.localPath) {
-        this.localStatus = 'Enter a folder path first';
-        this.render();
-        return;
-      }
-      const result = await installLocalSkill(
-        this.app.vault,
-        this.plugin.state,
-        this.localPath
-      );
-      if (result.success) {
-        new Notice(`Added skill: ${result.skillName}`);
-        this.onDone();
-        this.close();
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.removeClass('is-dragover');
+    });
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.removeClass('is-dragover');
+      const file = e.dataTransfer?.files[0];
+      if (file && file.name.endsWith('.zip')) {
+        this.handleZipFile(file);
       } else {
-        this.localStatus = result.errors.join('; ');
+        this.zipStatus = 'Please drop a .zip file';
         this.render();
       }
     });
+
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files?.[0];
+      if (file) this.handleZipFile(file);
+    });
+
+    // Preview list
+    if (this.zipPreview.length > 0) {
+      const previewEl = container.createDiv('skills-manager-zip-preview');
+      previewEl.createEl('p', {
+        text: `${this.zipPreview.length} skill(s) found:`,
+        cls: 'skills-manager-zip-preview-header',
+      });
+      const list = previewEl.createEl('ul', { cls: 'skills-manager-zip-preview-list' });
+      for (const skill of this.zipPreview) {
+        const li = list.createEl('li');
+        li.createEl('span', { text: skill.name, cls: 'skills-manager-zip-skill-name' });
+        if (skill.name !== skill.folder) {
+          li.createEl('span', { text: ` (${skill.folder})`, cls: 'skills-manager-zip-skill-folder' });
+        }
+      }
+    }
+
+    // Status
+    if (this.zipStatus) {
+      const status = container.createEl('p', { cls: 'skills-manager-modal-status' });
+      status.setText(this.zipStatus);
+    }
+
+    // Install button
+    if (this.zipPreview.length > 0) {
+      const btnRow = container.createDiv('skills-manager-modal-buttons');
+      const installBtn = btnRow.createEl('button', {
+        text: this.zipInstalling ? 'Installing...' : `Install ${this.zipPreview.length} skill(s)`,
+        cls: 'mod-cta',
+      });
+      if (this.zipInstalling) installBtn.addClass('is-disabled');
+
+      installBtn.addEventListener('click', async () => {
+        if (this.zipInstalling || !this.zipData) return;
+        this.zipInstalling = true;
+        this.zipStatus = 'Installing...';
+        this.render();
+
+        try {
+          const result = await installFromZip(
+            this.app.vault,
+            this.plugin.state,
+            this.plugin.state.settings.skillsDir,
+            this.zipData
+          );
+
+          if (result.installed.length > 0) {
+            new Notice(`Installed ${result.installed.length} skill(s): ${result.installed.join(', ')}`);
+          }
+          if (result.errors.length > 0) {
+            this.zipStatus = `Errors: ${result.errors.join('; ')}`;
+            this.zipInstalling = false;
+            this.render();
+          }
+          if (result.installed.length > 0) {
+            this.onDone();
+            if (result.errors.length === 0) {
+              this.close();
+            }
+          } else {
+            this.zipInstalling = false;
+            if (!this.zipStatus) {
+              this.zipStatus = 'No skills were installed';
+            }
+            this.render();
+          }
+        } catch (e) {
+          this.zipStatus = e instanceof Error ? e.message : String(e);
+          this.zipInstalling = false;
+          this.render();
+        }
+      });
+    }
+  }
+
+  private async handleZipFile(file: File): Promise<void> {
+    this.zipFileName = file.name;
+    this.zipStatus = 'Reading ZIP...';
+    this.zipPreview = [];
+    this.render();
+
+    try {
+      const blob = new Blob([file]);
+      this.zipData = await getBlobArrayBuffer(blob);
+
+      const preview = await previewZipSkills(this.zipData);
+      if (preview.error) {
+        this.zipStatus = preview.error;
+        this.zipPreview = [];
+      } else if (preview.skills.length === 0) {
+        this.zipStatus = 'No skill folders found in ZIP';
+        this.zipPreview = [];
+      } else {
+        this.zipStatus = '';
+        this.zipPreview = preview.skills;
+      }
+    } catch (e) {
+      this.zipStatus = e instanceof Error ? e.message : String(e);
+      this.zipData = null;
+      this.zipPreview = [];
+    }
+
+    this.render();
   }
 
   private renderRemoteTab(container: HTMLElement): void {

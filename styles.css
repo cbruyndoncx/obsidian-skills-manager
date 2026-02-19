@@ -4,6 +4,56 @@
   max-width: 900px;
 }
 
+.skills-manager-readme-link {
+  display: inline-block;
+  margin-bottom: 12px;
+  font-size: 0.85em;
+  color: var(--text-accent);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.skills-manager-readme-link:hover {
+  text-decoration: underline;
+}
+
+.skills-manager-readme-modal {
+  width: 80vw;
+  max-width: 800px;
+  height: 80vh;
+}
+
+.skills-manager-readme-modal .modal-content {
+  height: calc(100% - 40px);
+  overflow-y: auto;
+}
+
+.skills-manager-readme-content {
+  padding: 0 16px 16px;
+}
+
+.skills-manager-readme-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+}
+
+.skills-manager-readme-content th,
+.skills-manager-readme-content td {
+  padding: 6px 10px;
+  border: 1px solid var(--background-modifier-border);
+  text-align: left;
+  font-size: 0.9em;
+}
+
+.skills-manager-readme-content th {
+  background: var(--background-secondary);
+}
+
+.skills-manager-readme-content code {
+  font-size: 0.85em;
+}
+
 .skills-manager-heading {
   margin-top: 1.5em;
   margin-bottom: 0.5em;
@@ -149,7 +199,18 @@
 
 /* Delete confirmation */
 .skills-manager-delete-confirm {
-  color: var(--text-error) !important;
+  color: #fff !important;
+  background: #e03e3e !important;
+  border-radius: 4px !important;
+  padding: 2px 6px !important;
+}
+
+.skills-manager-delete-confirm-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #e03e3e;
+  margin-right: 4px;
+  vertical-align: middle;
 }
 
 /* Add Skill Modal */
@@ -443,10 +504,51 @@
   color: var(--text-normal);
 }
 
+/* ===== Install Activity Log ===== */
+.skills-manager-install-log {
+  margin-bottom: 12px;
+  padding: 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-secondary);
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.skills-manager-install-log-item {
+  padding: 4px 8px;
+  margin-bottom: 2px;
+  font-size: 0.85em;
+  border-radius: 4px;
+}
+
+.skills-manager-install-log-item.is-success {
+  color: var(--text-success, #4caf50);
+}
+
+.skills-manager-install-log-item.is-error {
+  color: var(--text-error);
+}
+
 /* ===== Skills View (sidebar panel) ===== */
+.skills-manager-view-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.skills-manager-view-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex-shrink: 0;
+  padding: 0 8px;
+}
+
 .skills-manager-view-wrapper {
   display: flex;
-  height: 100%;
+  flex: 1;
   overflow: hidden;
 }
 
@@ -630,5 +732,184 @@
 
 .skills-manager-view-detail-uptodate {
   color: var(--text-faint);
+  font-size: 12px;
+}
+
+/* ===== Collapsible category headers ===== */
+.skills-manager-view-category-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 4px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-radius: 4px;
+}
+
+.skills-manager-view-category-header:hover {
+  color: var(--text-normal);
+  background: var(--background-secondary);
+}
+
+.skills-manager-view-category-header .skills-manager-chevron {
+  display: inline-block;
+  font-size: 0.85em;
+  width: 1em;
+  flex-shrink: 0;
+}
+
+/* ===== Marketplace board bar ===== */
+.skills-manager-view-board-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 8px;
+}
+
+.skills-manager-view-board-bar .skills-manager-tab {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+/* ===== Marketplace list items ===== */
+.skills-manager-view-registry-list {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.skills-manager-view-registry-item {
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-bottom: 1px;
+}
+
+.skills-manager-view-registry-item:hover {
+  background: var(--background-secondary);
+}
+
+.skills-manager-view-registry-item.is-selected {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.skills-manager-view-registry-item.is-selected .skills-manager-registry-source,
+.skills-manager-view-registry-item.is-selected .skills-manager-registry-installs {
+  color: var(--text-on-accent);
+  opacity: 0.8;
+}
+
+/* ===== Marketplace detail ===== */
+.skills-manager-view-registry-detail {
+  margin-top: 16px;
+}
+
+.skills-manager-view-install-btn {
+  padding: 6px 20px;
+  border-radius: 4px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.skills-manager-view-install-btn:hover {
+  opacity: 0.9;
+}
+
+.skills-manager-view-install-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ===== Registry config sections ===== */
+.skills-manager-registry-config {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background: var(--background-secondary);
+}
+
+.skills-manager-registry-config .setting-item {
+  border-top: none;
+  padding: 4px 0;
+}
+
+.skills-manager-tab-content {
+  margin-top: 8px;
+}
+
+/* ===== ZIP Upload Drop Zone ===== */
+.skills-manager-drop-zone {
+  border: 2px dashed var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 24px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  margin-bottom: 12px;
+}
+
+.skills-manager-drop-zone:hover {
+  border-color: var(--interactive-accent);
+  background: var(--background-secondary);
+}
+
+.skills-manager-drop-zone.is-dragover {
+  border-color: var(--interactive-accent);
+  background: var(--background-secondary);
+}
+
+.skills-manager-drop-zone-filename {
+  font-weight: 600;
+  font-size: 14px;
+  margin: 0 0 4px;
+}
+
+.skills-manager-drop-zone-hint {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.skills-manager-file-input {
+  display: none;
+}
+
+/* ZIP preview list */
+.skills-manager-zip-preview {
+  margin-bottom: 8px;
+}
+
+.skills-manager-zip-preview-header {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.skills-manager-zip-preview-list {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+}
+
+.skills-manager-zip-preview-list li {
+  margin: 2px 0;
+}
+
+.skills-manager-zip-skill-name {
+  font-weight: 500;
+}
+
+.skills-manager-zip-skill-folder {
+  color: var(--text-muted);
   font-size: 12px;
 }
