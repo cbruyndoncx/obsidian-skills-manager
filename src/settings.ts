@@ -588,6 +588,30 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
         this.renderTabContent(container);
       });
 
+      // Category toggle — enable/disable all skills in this category
+      const enabledInCat = entries.filter(([, m]) => !m.disableModelInvocation).length;
+      const allEnabled = enabledInCat === entries.length;
+      const catToggle = headerEl.createEl('input', { type: 'checkbox' });
+      catToggle.addClass('skills-manager-category-toggle');
+      catToggle.checked = allEnabled;
+      catToggle.indeterminate = enabledInCat > 0 && !allEnabled;
+      catToggle.addEventListener('click', (e) => e.stopPropagation());
+      catToggle.addEventListener('change', async (e) => {
+        e.stopPropagation();
+        const disable = allEnabled; // if all enabled, disable all; otherwise enable all
+        for (const [folderName] of entries) {
+          await toggleSkill(
+            this.app.vault,
+            this.plugin.state.settings.skillsDir,
+            folderName,
+            disable
+          );
+        }
+        this.allSkills = new Map();
+        this.plugin.regenerateIndex();
+        this.display();
+      });
+
       // Skill rows (only if expanded)
       if (!isCollapsed) {
         for (const [folderName, meta] of entries) {

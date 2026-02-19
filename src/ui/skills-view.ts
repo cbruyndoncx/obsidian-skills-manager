@@ -123,9 +123,30 @@ export class SkillsView extends ItemView {
 
       const displayName = category;
       const catEl = this.listPane.createDiv('skills-manager-view-category');
-      catEl.createEl('div', {
-        text: `${displayName} (${entries.length})`,
+      const catLabel = catEl.createEl('div', {
         cls: 'skills-manager-view-category-label',
+      });
+      catLabel.createSpan({ text: `${displayName} (${entries.length})` });
+
+      // Category toggle
+      const enabledInCat = entries.filter(([, m]) => !m.disableModelInvocation).length;
+      const allEnabled = enabledInCat === entries.length;
+      const catToggle = catLabel.createEl('input', { type: 'checkbox' });
+      catToggle.addClass('skills-manager-category-toggle');
+      catToggle.checked = allEnabled;
+      catToggle.indeterminate = enabledInCat > 0 && !allEnabled;
+      catToggle.addEventListener('click', (e) => e.stopPropagation());
+      catToggle.addEventListener('change', async () => {
+        const disable = allEnabled;
+        for (const [folderName] of entries) {
+          await toggleSkill(
+            this.app.vault,
+            this.plugin.state.settings.skillsDir,
+            folderName,
+            disable
+          );
+        }
+        await this.refresh();
       });
 
       for (const [folderName, meta] of entries.sort((a, b) => a[1].name.localeCompare(b[1].name))) {

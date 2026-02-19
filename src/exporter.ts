@@ -96,7 +96,8 @@ export async function exportSkills(
 }
 
 /**
- * Generate SKILLS.md index at vault root listing all enabled skills grouped by category.
+ * Generate SKILLS.md index at vault root listing all enabled skills grouped by category,
+ * plus a slash commands section for user-invocable skills.
  */
 export async function generateSkillsIndex(
   vault: Vault,
@@ -105,29 +106,36 @@ export async function generateSkillsIndex(
 ): Promise<void> {
   const skills = await scanSkills(vault, skillsDir, defaultCategory);
 
-  // Group by category
+  // Collect enabled skills grouped by category, and user-invocable commands
   const grouped = new Map<string, { name: string; description: string }[]>();
-  for (const [, meta] of skills) {
+  const commands: { name: string; path: string; description: string }[] = [];
+
+  for (const [folderName, meta] of skills) {
     if (meta.disableModelInvocation) continue;
     const cat = meta.category;
     if (!grouped.has(cat)) grouped.set(cat, []);
     grouped.get(cat)!.push({ name: meta.name, description: meta.description });
+
+    if (meta.userInvocable) {
+      commands.push({
+        name: meta.name,
+        path: `${skillsDir}/${folderName}/SKILL.md`,
+        description: meta.description,
+      });
+    }
   }
 
-  // Build content — categories sorted alphabetically by display name
+  // Build content — categories sorted alphabetically
   const lines: string[] = ['# Available Skills', ''];
 
-  const sortedCategories = Array.from(grouped.keys()).sort((a, b) => {
-    const nameA = a.toLowerCase();
-    const nameB = b.toLowerCase();
-    return nameA.localeCompare(nameB);
-  });
+  const sortedCategories = Array.from(grouped.keys()).sort((a, b) =>
+    a.toLowerCase().localeCompare(b.toLowerCase())
+  );
 
   for (const cat of sortedCategories) {
     const entries = grouped.get(cat)!;
     if (entries.length === 0) continue;
-    const displayName = cat;
-    lines.push(`## ${displayName}`);
+    lines.push(`## ${cat}`);
     for (const s of entries.sort((a, b) => a.name.localeCompare(b.name))) {
       lines.push(`- ${s.name}: ${s.description}`);
     }
@@ -137,6 +145,17 @@ export async function generateSkillsIndex(
   const total = Array.from(skills.values()).filter(m => !m.disableModelInvocation).length;
   lines.push(`Total: ${total} enabled skills`);
   lines.push('');
+
+  // Slash commands section
+  if (commands.length > 0) {
+    lines.push('---', '');
+    lines.push('## Slash Commands', '');
+    lines.push('When the user invokes `/<skill-name>`, read the corresponding SKILL.md file for full instructions.', '');
+    for (const cmd of commands.sort((a, b) => a.name.localeCompare(b.name))) {
+      lines.push(`- \`/${cmd.name}\` → \`${cmd.path}\``);
+    }
+    lines.push('');
+  }
 
   await vault.adapter.write('SKILLS.md', lines.join('\n'));
 }
