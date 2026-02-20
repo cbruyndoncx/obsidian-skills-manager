@@ -52,6 +52,7 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
   plugin: SkillsManagerPlugin;
   private skillContainers: Map<string, HTMLElement> = new Map();
   private searchQuery = '';
+  private searchIncludeDesc = false;
   private deleteConfirm: string | null = null;
   private expandedSkill: string | null = null;
   private threatCache: Map<string, SecurityScanResult> = new Map();
@@ -426,6 +427,7 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
     addBtn.addClass('skills-manager-add-btn');
     addBtn.addEventListener('click', () => {
       new AddSkillModal(this.app, this.plugin, () => {
+        this.allSkills = new Map(); // invalidate cache so rescan picks up new skill
         this.plugin.regenerateIndex();
         this.display();
       }).open();
@@ -435,16 +437,25 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
     const searchContainer = container.createDiv('skills-manager-search');
     const searchInput = searchContainer.createEl('input', {
       type: 'text',
-      placeholder: 'Filter skills...',
+      placeholder: 'Filter by name...',
     });
     searchInput.addClass('skills-manager-search-input');
     searchInput.value = this.searchQuery;
     const debouncedFilter = debounce(() => {
       this.searchQuery = searchInput.value.toLowerCase();
-      this.autoExpandForSearch();
       this.filterSkills(container);
     }, 200);
     searchInput.addEventListener('input', debouncedFilter);
+
+    const descLabel = searchContainer.createEl('label', { cls: 'skills-manager-search-desc-toggle' });
+    const descCheck = descLabel.createEl('input', { type: 'checkbox' });
+    descCheck.checked = this.searchIncludeDesc;
+    descLabel.appendText(' Include description');
+    descCheck.addEventListener('change', () => {
+      this.searchIncludeDesc = descCheck.checked;
+      searchInput.placeholder = this.searchIncludeDesc ? 'Filter by name & description...' : 'Filter by name...';
+      if (this.searchQuery) this.filterSkills(container);
+    });
 
     // Scan skills (use cache if available, full display() clears it)
     if (this.allSkills.size === 0) {
@@ -1082,7 +1093,8 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
     const row = container.createDiv('skills-manager-skill-row');
     this.skillContainers.set(folderName, row);
     row.dataset.skillName = folderName;
-    row.dataset.searchText = `${meta.name} ${meta.description} ${meta.category}`.toLowerCase();
+    row.dataset.searchName = meta.name.toLowerCase();
+    row.dataset.searchDesc = `${meta.name} ${meta.description}`.toLowerCase();
 
     const skillState = this.plugin.state.getSkillState(folderName);
     const isGitHub = skillState?.source === 'github';
@@ -1473,14 +1485,42 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
   }
 
   private filterSkills(tabContainer: HTMLElement): void {
+    // When searching, expand matching categories and re-render to ensure rows exist in DOM
     if (this.searchQuery) {
-      this.renderTabContent(tabContainer);
-      return;
+      // Check if we need to expand any collapsed categories that have matches
+      let needsRerender = false;
+      for (const [, meta] of this.allSkills) {
+        const text = this.searchIncludeDesc
+          ? `${meta.name} ${meta.description}`.toLowerCase()
+          : meta.name.toLowerCase();
+        if (text.includes(this.searchQuery)) {
+          const cat = meta.category || this.plugin.state.settings.defaultCategory || 'uncategorized';
+          if (this.collapsedCategories.has(cat)) {
+            this.collapsedCategories.delete(cat);
+            needsRerender = true;
+          }
+        }
+      }
+
+      if (needsRerender) {
+        // Re-render to expand categories, then refocus
+        this.renderTabContent(tabContainer).then(() => {
+          this.applySearchFilter(tabContainer);
+          this.refocusSearch(tabContainer);
+        });
+        return;
+      }
     }
 
+    this.applySearchFilter(tabContainer);
+  }
+
+  private applySearchFilter(tabContainer: HTMLElement): void {
     for (const [, el] of this.skillContainers) {
-      const searchText = el.dataset.searchText || '';
-      if (!this.searchQuery || searchText.includes(this.searchQuery)) {
+      const text = this.searchIncludeDesc
+        ? (el.dataset.searchDesc || '')
+        : (el.dataset.searchName || '');
+      if (!this.searchQuery || text.includes(this.searchQuery)) {
         el.style.display = '';
       } else {
         el.style.display = 'none';
@@ -1495,5 +1535,13 @@ export class SkillsManagerSettingTab extends PluginSettingTab {
       );
       (cat as HTMLElement).style.display = visibleRows.length > 0 ? '' : 'none';
     });
+  }
+
+  private refocusSearch(tabContainer: HTMLElement): void {
+    const input = tabContainer.querySelector('.skills-manager-search-input') as HTMLInputElement;
+    if (input) {
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
   }
 }
